@@ -4,5 +4,6 @@ wandb/
 videos/
 trained/
 configs/
+outputs/
 *.pt
 *.log

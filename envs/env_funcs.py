@@ -1,6 +1,6 @@
 from typing import Union
 import metaworld
-from wrappers import MT1Wrapper
+from wrappers import MTWrapper
 
 
 def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]], seed: int = None, **kwargs):
@@ -19,7 +19,8 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
             base_env_tasks = mt1.train_tasks
             def env_fn():
                 base_env = base_env_cls(**kwargs)
-                return MT1Wrapper(base_env, base_env_tasks, sparse_reward=True, auto_reset=True, max_path_length=200, seed=seed)
+                # return MTWrapper(base_env, base_env_tasks, sparse_reward=True, auto_reset=True, max_path_length=200, seed=seed)
+                return MTWrapper(base_env, base_env_tasks, sparse_reward=False, auto_reset=True, max_path_length=200, seed=seed)  # debug
             env_fns.append(env_fn)
     elif isinstance(benchmark, metaworld.Benchmark):    
         for env_name in benchmark.train_classes:
@@ -30,7 +31,8 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
                     base_env_tasks.append(task)
             def env_fn():
                 base_env = base_env_cls(**kwargs)
-                return MT1Wrapper(base_env, base_env_tasks, sparse_reward=True, auto_reset=True, max_path_length=200, seed=seed)
+                # return MTWrapper(base_env, base_env_tasks, sparse_reward=True, auto_reset=True, max_path_length=200, seed=seed)
+                return MTWrapper(base_env, base_env_tasks, sparse_reward=False, auto_reset=True, max_path_length=200, seed=seed)  # debug
             env_fns.append(env_fn)
     return env_fns
 
@@ -38,7 +40,6 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
 if __name__ == '__main__':
 
     seed = 0
-    # mt10 = metaworld.MT10(seed=seed)
     env_fns = generate_metaworld_env_fns(['reach-v2', 'push-v2'], seed=seed)
 
     from envs.subproc_vec_env import SubprocVecEnv

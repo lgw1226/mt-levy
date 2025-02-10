@@ -75,9 +75,9 @@ class SubprocVecEnv:
     def __init__(self, env_fns):
         self.waiting = False
         self.closed = False
-        n_envs = len(env_fns)
+        self.num_envs = len(env_fns)
 
-        conn_pairs: tuple[tuple[Connection], tuple[Connection]] = zip(*[Pipe() for _ in range(n_envs)])  # create pipelines for communication between parent and subprocesses
+        conn_pairs: tuple[tuple[Connection], tuple[Connection]] = zip(*[Pipe() for _ in range(self.num_envs)])  # create pipelines for communication between parent and subprocesses
         self.conns, self.work_conns = conn_pairs
         self.processes: list[Process] = []
         for conns, work_conn, env_fn in zip(self.conns, self.work_conns, env_fns):

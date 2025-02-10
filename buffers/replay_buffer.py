@@ -5,9 +5,10 @@ from utils import Trajectory
 
 
 class ReplayBuffer:
-    def __init__(self, max_len: int):
+    def __init__(self, max_len: int, seed: int = None):
         self.max_len = max_len
         self.buffer = deque(maxlen=max_len)
+        self.np_random = np.random.default_rng(seed=seed)
 
     def __len__(self):
         return len(self.buffer)
@@ -16,7 +17,7 @@ class ReplayBuffer:
         self.buffer.append(args)
 
     def sample(self, batch_size: int) -> Tuple[np.ndarray, ...]:
-        indices = np.random.choice(len(self.buffer), batch_size, replace=False)
+        indices = self.np_random.choice(len(self.buffer), batch_size, replace=False)
         batch = []
         for i in indices:
             batch.append(self.buffer[i])

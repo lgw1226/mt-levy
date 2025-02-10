@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List
 
 import gymnasium as gym
 import numpy as np
@@ -6,7 +6,7 @@ from metaworld.envs.mujoco.sawyer_xyz import SawyerXYZEnv
 from metaworld.types import Task
 
 
-class MT1Wrapper(gym.Wrapper):
+class MTWrapper(gym.Wrapper):
     def __init__(
             self,
             env: SawyerXYZEnv,
@@ -16,7 +16,7 @@ class MT1Wrapper(gym.Wrapper):
             max_path_length: int = 200,
             seed: int = None
     ):
-        super(MT1Wrapper, self).__init__(env)
+        super(MTWrapper, self).__init__(env)
         self.env = env
         self.env.max_path_length = max_path_length
         self.tasks = tasks
@@ -35,13 +35,12 @@ class MT1Wrapper(gym.Wrapper):
     
     def step(self, action: np.ndarray):
         obs, reward, terminated, truncated, info = self.env.step(action)
+        info['next_observation'] = obs
         if self.sparse_reward:
             reward = float(info['success'])
             terminated = bool(info['success'])
 
         if (terminated or truncated) and self.auto_reset:
-            new_obs, info = self.reset()
-            info['final_observation'] = obs  # store the final observation
-            obs = new_obs  # reset the environment
+            obs, _ = self.reset()
             
         return obs, reward, terminated, truncated, info
