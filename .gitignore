@@ -1,0 +1,8 @@
+__pycache__/
+archive/
+wandb/
+videos/
+trained/
+configs/
+*.pt
+*.log
