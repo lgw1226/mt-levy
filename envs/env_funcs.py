@@ -2,8 +2,13 @@ from typing import Union
 import metaworld
 from wrappers import MTWrapper
 
+import gymnasium as gym
+from omegaconf import OmegaConf, ListConfig
+from envs import SubprocVecEnv
 
-def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]], seed: int = None, **kwargs):
+
+
+def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]], seed: int, **kwargs):
     """Generate a list of functions that return metaworld environments.
 
     :param benchmark: A metaworld benchmark or a list of environment names.
@@ -36,22 +41,27 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
             env_fns.append(env_fn)
     return env_fns
 
-
-if __name__ == '__main__':
-
-    seed = 0
-    env_fns = generate_metaworld_env_fns(['reach-v2', 'push-v2'], seed=seed)
-
-    from envs.subproc_vec_env import SubprocVecEnv
-    env = SubprocVecEnv(env_fns)
-    obs, info = env.reset()
-    print(obs, info)
-
-    for _ in range(201):
-        act = env.sample_action()
-        print(act)
-
-        obs, rwd, ter, tru, info = env.step(act)
-        print(obs, rwd, ter, tru, info)
-
-    env.close()
+def parse_benchmark(benchmark: Union[list[str], str], seed: int) -> tuple[SubprocVecEnv, list[gym.Env], int, int]:
+    '''Can be given a list of environment names or a benchmark name.
+    Return a SubprocVecEnv, a list of gym environments, observation dimension, and action dimension.
+    SubprocVecEnv is a vectorized environment that runs multiple environments in parallel.
+    A list of gym environments is used for evaluation.
+    '''
+    if isinstance(benchmark, (list, ListConfig)):
+        benchmark = OmegaConf.to_container(benchmark) if isinstance(benchmark, ListConfig) else benchmark
+        env_fns = generate_metaworld_env_fns(benchmark, seed=seed)
+        obs_dim, act_dim = 39, 4
+    elif isinstance(benchmark, str):
+        if benchmark == 'MT10':
+            mt10 = metaworld.MT10(seed=seed)
+            env_fns = generate_metaworld_env_fns(mt10, seed=seed)
+            obs_dim, act_dim = 39, 4
+        elif benchmark == 'MT50':
+            mt50 = metaworld.MT50(seed=seed)
+            env_fns = generate_metaworld_env_fns(mt50, seed=seed)
+            obs_dim, act_dim = 39, 4
+        else:
+            raise ValueError(f'Invalid benchmark name: {benchmark}')
+    else:
+        raise TypeError(f'Invalid benchmark type: {type(benchmark)}')
+    return SubprocVecEnv(env_fns, seed), [env_fn() for env_fn in env_fns], obs_dim, act_dim

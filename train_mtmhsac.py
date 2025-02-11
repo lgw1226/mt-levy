@@ -1,93 +1,109 @@
+import os
+import logging
 from typing import Union
+from datetime import datetime
 
 import torch
-import gymnasium as gym
-import metaworld
+import numpy as np
 import hydra
-from omegaconf import DictConfig
+import wandb
+from omegaconf import DictConfig, ListConfig, OmegaConf
 from tqdm import trange
 
-from envs import generate_metaworld_env_fns, SubprocVecEnv
 from algos import MTMHSAC
 from buffers import ReplayBuffer
+from envs import parse_benchmark
+from utils import evaluate
 
+os.makedirs('logs', exist_ok=True)
+logger = logging.getLogger(__name__)
 
-def parse_benchmark(benchmark: Union[list[str], str], seed: int = None) -> tuple[SubprocVecEnv, list[gym.Env], int, int]:
-    '''Can be given a list of environment names or a benchmark name.
-    Return a SubprocVecEnv, a list of gym environments, observation dimension, and action dimension.
-    SubprocVecEnv is a vectorized environment that runs multiple environments in parallel.
-    A list of gym environments is used for evaluation.
-    '''
-    if isinstance(benchmark, list):
-        env_fns = generate_metaworld_env_fns(benchmark, seed=seed)
-        obs_dim, act_dim = 39, 4
-    elif isinstance(benchmark, str):
-        if benchmark == 'MT10':
-            mt10 = metaworld.MT10(seed=seed)
-            env_fns = generate_metaworld_env_fns(mt10, seed=seed)
-            obs_dim, act_dim = 39, 4
-        elif benchmark == 'MT50':
-            mt50 = metaworld.MT50(seed=seed)
-            env_fns = generate_metaworld_env_fns(mt50, seed=seed)
-            obs_dim, act_dim = 39, 4
-        else:
-            raise ValueError(f'Invalid benchmark name: {benchmark}')
-    else:
-        raise TypeError(f'Invalid benchmark type: {type(benchmark)}')
-    return SubprocVecEnv(env_fns), [env_fn() for env_fn in env_fns], obs_dim, act_dim
-
-def evaluate(mtmhsac: MTMHSAC, eval_envs: list[gym.Env], num_episodes: int = 10):
-    mean_return = []
-    for i, env in enumerate(eval_envs):
-        total_rwd = 0
-        episode_cnt = 0
-        obs, _ = env.reset()
-        while episode_cnt < num_episodes:
-            act = mtmhsac.get_action(obs, i, deterministic=True)
-            obs, rwd, ter, tru, _ = env.step(act)
-            total_rwd += rwd
-            if ter or tru: episode_cnt += 1
-        mean_return.append(total_rwd / num_episodes)
-    return mean_return
 
 @hydra.main(version_base=None, config_path='configs', config_name='train_mtmhsac')
 def main(cfg: DictConfig) -> None:
+
+    # logger.info(f'configuration\n{OmegaConf.to_yaml(cfg)}')
+    logger.info('unpack configuration')
     seed: int = cfg.seed
+    torch.random.manual_seed(seed)
     gpu_index: int = cfg.gpu_index
     device = f'cuda:{gpu_index}' if torch.cuda.is_available() else 'cpu'
-    benchmark: Union[list[str], str] = cfg.benchmark
+    benchmark: Union[str, ListConfig] = cfg.benchmark
 
-    train_steps: int = cfg.train_steps  # steps are counted for each environment
-    init_steps: int = cfg.init_steps
-    eval_freq: int = cfg.eval_freq
+    num_epochs: int = cfg.num_epochs  # evaluate after each epoch
+    eval_episodes: int = cfg.eval_episodes  # evaluate for this many episodes
+    init_steps: int = cfg.init_steps  # only for the initial epoch
+    train_steps: int = cfg.train_steps  # per epoch
+    log_interval: int = cfg.log_interval
     buffer_size: int = cfg.buffer_size
     batch_size: int = cfg.batch_size
 
-    vec_env, eval_envs, obs_dim, act_dim = parse_benchmark(benchmark, seed=seed)
+    exp_type: str = cfg.exploration.type
+    sr_decay: float = cfg.exploration.success_rate_decay
+
+    logger.info('initialize environments, agent, and buffer')
+    vec_env, eval_envs, obs_dim, act_dim = parse_benchmark(benchmark, seed=seed)  # reproducible?
     mtmhsac = MTMHSAC(vec_env.num_envs, obs_dim, act_dim, **cfg.mtmhsac, device=device)
     buffer = ReplayBuffer(buffer_size, seed=seed)
+    if exp_type == 'none':
+        pass
+    elif exp_type == 'ez-greedy':
+        pass
+    elif exp_type == 'QMP':
+        pass
+    elif exp_type == 'levy':
+        pass
 
+    logger.info('initialize wandb')
+    run = wandb.init(
+        project=cfg.wandb.project,
+        name=cfg.wandb.name,
+        mode=cfg.wandb.mode,
+        id=datetime.now().strftime('%Y%m%d%H%M%S'),
+        config=OmegaConf.to_container(cfg),
+    )
+
+    logger.info('start training')
     obs, info = vec_env.reset()  # environments are automatically reset
-    for step in trange(1, train_steps + 1):
-        # advance environment
-        if step <= init_steps:
-            act = vec_env.sample_action()
-        else:
-            act = [mtmhsac.get_action(obs[i], i) for i in range(vec_env.num_envs)]
-        obs, rwd, ter, _, info = vec_env.step(act)
+    success_rate = np.zeros(vec_env.num_envs)  # exponentially decayed success ratio, debug
+    for epoch in range(1, num_epochs + 1):
+        for step in trange(1, train_steps + 1, desc=f'epoch {epoch}', unit='step'):
+            wandb_log = {'step': step + (epoch - 1) * train_steps}
 
-        # store transitions
-        for i in range(vec_env.num_envs):
-            buffer.append(obs[i], act[i], rwd[i], info[i]['next_observation'], ter[i], i)
+            # advance environment
+            if step > init_steps or epoch != 1:
+                act = [mtmhsac.get_action(obs[i], i) for i in range(vec_env.num_envs)]
+            else:
+                act = vec_env.sample_action()
+            obs, rwd, ter, tru, info = vec_env.step(act)
 
-        # fit
-        if step > init_steps:
-            for _ in range(vec_env.num_envs):
-                log = mtmhsac.update(buffer.sample(batch_size))
+            # update training success ratio
+            for i in range(vec_env.num_envs):
+                if ter[i] or tru[i]:
+                    success_rate[i] = success_rate[i] * (1 - sr_decay) + info[i]['success'] * sr_decay
+            wandb_log.update({'train/success-rate': success_rate.mean()})
 
-        # evaluate
-        if step % eval_freq == 0:
-            print(evaluate(mtmhsac, eval_envs))
+            # store transitions
+            for i in range(vec_env.num_envs):
+                buffer.append(obs[i], act[i], rwd[i], info[i]['next_observation'], ter[i], i)
+
+            # fit
+            if step > init_steps or epoch != 1:
+                for i in range(vec_env.num_envs):
+                    fit_log = mtmhsac.update(buffer.sample(batch_size))
+                wandb_log.update(fit_log)
+
+            # log to wandb
+            if step % log_interval == 0:
+                run.log(wandb_log)
+
+        eval_log = evaluate(mtmhsac, eval_envs, num_episodes=eval_episodes)
+        logger.info(eval_log)
+        run.log({key: value.mean() for key, value in eval_log.items()})
+
+    vec_env.close()
+    for env in eval_envs: env.close()
+    run.finish()
 
 
 if __name__ == '__main__':

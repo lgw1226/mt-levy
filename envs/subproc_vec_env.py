@@ -7,6 +7,7 @@ from multiprocessing.connection import Connection
 import gymnasium as gym
 import numpy as np
 import cloudpickle
+from wrappers import MTWrapper
 
 
 class CloudpickleWrapper:
@@ -25,7 +26,7 @@ class CloudpickleWrapper:
         self.var = cloudpickle.loads(var)
 
 
-def _worker(conn: Connection, work_conn: Connection, serialized_env_fn: CloudpickleWrapper):
+def _worker(conn: Connection, work_conn: Connection, serialized_env_fn: CloudpickleWrapper, seed: int):
     """Create a worker function that will be used by a `multiprocessing.Process` instance.
 
     :param Connection conn: Connection object used to communicate with the parent process.
@@ -34,7 +35,9 @@ def _worker(conn: Connection, work_conn: Connection, serialized_env_fn: Cloudpic
     conn.close()  # close the parent connection in the subprocess (no need to access main process connection)
 
     # TODO: seeding, rendering, and other functionalities are not yet supported
-    env: gym.Env = serialized_env_fn.var()  # (seed=seed)
+    env: gym.Env = serialized_env_fn.var()
+    if isinstance(env, MTWrapper):
+        env.unwrapped.seed(seed)
     while True:
         try:
             cmd, data = work_conn.recv()
@@ -42,7 +45,7 @@ def _worker(conn: Connection, work_conn: Connection, serialized_env_fn: Cloudpic
                 observation, reward, terminated, truncated, info = env.step(data)
                 work_conn.send((observation, reward, terminated, truncated, info))
             elif cmd == 'reset':
-                observation, info = env.reset(data)
+                observation, info = env.reset()
                 work_conn.send((observation, info))
             elif cmd == 'render':
                 work_conn.send(env.render())
@@ -72,7 +75,7 @@ class SubprocVecEnv:
         (each callable returns a `Gym.Env` instance when called).
     """
 
-    def __init__(self, env_fns):
+    def __init__(self, env_fns, seed: int):
         self.waiting = False
         self.closed = False
         self.num_envs = len(env_fns)
@@ -80,8 +83,8 @@ class SubprocVecEnv:
         conn_pairs: tuple[tuple[Connection], tuple[Connection]] = zip(*[Pipe() for _ in range(self.num_envs)])  # create pipelines for communication between parent and subprocesses
         self.conns, self.work_conns = conn_pairs
         self.processes: list[Process] = []
-        for conns, work_conn, env_fn in zip(self.conns, self.work_conns, env_fns):
-            args = (conns, work_conn, CloudpickleWrapper(env_fn))
+        for rank, (conn, work_conn, env_fn) in enumerate(zip(self.conns, self.work_conns, env_fns)):
+            args = (conn, work_conn, CloudpickleWrapper(env_fn), seed+rank)
             process = Process(target=_worker, args=args, daemon=True)  # create subprocess instance
             process.start()
             self.processes.append(process)

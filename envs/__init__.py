@@ -1,2 +1,2 @@
-from envs.env_funcs import generate_metaworld_env_fns
+from envs.env_funcs import generate_metaworld_env_fns, parse_benchmark
 from envs.subproc_vec_env import SubprocVecEnv
