@@ -36,9 +36,12 @@ def main(cfg: DictConfig) -> None:
     eval_episodes: int = cfg.eval_episodes  # evaluate for this many episodes
     init_steps: int = cfg.init_steps  # only for the initial epoch
     train_steps: int = cfg.train_steps  # per epoch
-    log_interval: int = cfg.log_interval
     buffer_size: int = cfg.buffer_size
     batch_size: int = cfg.batch_size
+
+    log_interval: int = cfg.log_interval
+    ckpt_interval: int = cfg.ckpt_interval  # per epoch
+    ckpt_base_dir: str = cfg.ckpt_base_dir
 
     exp_type: str = cfg.exploration.type
     sr_decay: float = cfg.exploration.success_rate_decay
@@ -47,6 +50,8 @@ def main(cfg: DictConfig) -> None:
     vec_env, eval_envs, obs_dim, act_dim = parse_benchmark(benchmark, seed, sparse=sparse, horizon=horizon)
     mtmhsac = MTMHSAC(vec_env.num_envs, obs_dim, act_dim, **cfg.mtmhsac, device=device)
     buffer = ReplayBuffer(buffer_size, seed=seed)
+    
+    # replace with exploration setup function
     if exp_type == 'none':
         pass
     elif exp_type == 'ez-greedy':
@@ -67,8 +72,11 @@ def main(cfg: DictConfig) -> None:
 
     logger.info('start training')
     obs, info = vec_env.reset()  # environments are automatically reset
-    success_rate = np.zeros(vec_env.num_envs)  # exponentially decayed success ratio, debug
+    success_rate = np.zeros(vec_env.num_envs)  # exponentially decayed success ratio
+
+    # training loop
     for epoch in range(1, num_epochs + 1):
+
         for step in trange(1, train_steps + 1, desc=f'epoch {epoch}', unit='step'):
             wandb_log = {'step': step + (epoch - 1) * train_steps}
 
@@ -99,13 +107,20 @@ def main(cfg: DictConfig) -> None:
             if step % log_interval == 0:
                 run.log(wandb_log)
 
+        # evaluate
         eval_log = evaluate(mtmhsac, eval_envs, num_episodes=eval_episodes)
-        # logger.info(eval_log)  # do I really need to log this? not actually...?
-        # convert into wandb-friendly format
         eval_log = {key: value.mean() for key, value in eval_log.items()}
         eval_log['epoch'] = epoch
         run.log(eval_log)
 
+        # save checkpoint
+        logger.info(f'save checkpoint at epoch {epoch}')
+        if epoch % ckpt_interval == 0:
+            ckpt_dir = os.path.join(ckpt_base_dir, f'{run.name}-{run.id}')
+            os.makedirs(ckpt_dir, exist_ok=True)
+            mtmhsac.save_ckpt(os.path.join(ckpt_dir, f'ckpt_epoch_{epoch}.pt'))
+
+    # close environments and finish wandb run
     vec_env.close()
     for env in eval_envs: env.close()
     run.finish()

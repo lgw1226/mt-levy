@@ -173,13 +173,13 @@ class MTMHSAC:
             'critic2': self.critic2.state_dict(),
             'target2': self.target2.state_dict(),
             'critic_optim': self.critic_optim.state_dict(),
-            'log_temp': self.log_temp,
+            'log_temp': self.log_temp.detach().cpu().numpy(),
             'temp_optim': self.temp_optim.state_dict(),
         }
         torch.save(ckpt_dict, path)
 
     def load_ckpt(self, path: str):
-        ckpt_dict = torch.load(path, weights_only=True)
+        ckpt_dict = torch.load(path)
         self.actor.load_state_dict(ckpt_dict['actor'])
         self.actor_optim.load_state_dict(ckpt_dict['actor_optim'])
         self.critic1.load_state_dict(ckpt_dict['critic1'])
@@ -187,7 +187,7 @@ class MTMHSAC:
         self.critic2.load_state_dict(ckpt_dict['critic2'])
         self.target2.load_state_dict(ckpt_dict['target2'])
         self.critic_optim.load_state_dict(ckpt_dict['critic_optim'])
-        self.log_temp = ckpt_dict['log_temp']
+        self.log_temp = torch.tensor(ckpt_dict['log_temp'], requires_grad=True, device=self.device)
         self.temp_optim.load_state_dict(ckpt_dict['temp_optim'])
 
     def _bound_log_std(self, log_std: torch.Tensor) -> torch.Tensor:

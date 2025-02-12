@@ -11,9 +11,13 @@ num_epochs: 200
 eval_episodes: 10
 train_steps: 10000
 init_steps: 1000
-log_interval: 100
 buffer_size: 1000000
 batch_size: 1280
+
+# logging
+log_interval: 100
+ckpt_interval: 20
+ckpt_base_dir: ../sdc/ckpts
 
 exploration:
   type: none
@@ -23,7 +27,7 @@ mtmhsac:
   actor_hidden_layers: [400, 400, 400]
   actor_lr: 0.0003
   critic_hidden_layers: [400, 400, 400]
-  bound_critic: False
+  bound_critic: ${sparse}
   critic_optimism: 0.2
   critic_weight_gain: 1
   critic_lr: 0.0003
