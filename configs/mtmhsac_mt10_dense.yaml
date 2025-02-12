@@ -1,0 +1,38 @@
+seed: 0
+gpu_index: 0
+
+# environments
+benchmark: MT10
+sparse: False
+horizon: 150
+
+# follows metaworld benchmark
+num_epochs: 200
+eval_episodes: 10
+train_steps: 10000
+init_steps: 1000
+log_interval: 100
+buffer_size: 1000000
+batch_size: 1280
+
+exploration:
+  type: none
+  success_rate_decay: 0.01
+
+mtmhsac:
+  actor_hidden_layers: [400, 400, 400]
+  actor_lr: 0.0003
+  critic_hidden_layers: [400, 400, 400]
+  bound_critic: False
+  critic_optimism: 0.2
+  critic_weight_gain: 1
+  critic_lr: 0.0003
+  init_temp: 0.1
+  temp_lr: 0.0001
+  gamma: 0.99
+  tau: 0.005
+
+wandb:
+  project: iros25
+  name: MTMHSAC-dense
+  mode: online

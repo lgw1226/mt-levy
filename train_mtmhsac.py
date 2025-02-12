@@ -29,6 +29,8 @@ def main(cfg: DictConfig) -> None:
     gpu_index: int = cfg.gpu_index
     device = f'cuda:{gpu_index}' if torch.cuda.is_available() else 'cpu'
     benchmark: Union[str, ListConfig] = cfg.benchmark
+    sparse: bool = cfg.sparse
+    horizon: int = cfg.horizon
 
     num_epochs: int = cfg.num_epochs  # evaluate after each epoch
     eval_episodes: int = cfg.eval_episodes  # evaluate for this many episodes
@@ -42,7 +44,7 @@ def main(cfg: DictConfig) -> None:
     sr_decay: float = cfg.exploration.success_rate_decay
 
     logger.info('initialize environments, agent, and buffer')
-    vec_env, eval_envs, obs_dim, act_dim = parse_benchmark(benchmark, seed=seed)  # reproducible?
+    vec_env, eval_envs, obs_dim, act_dim = parse_benchmark(benchmark, seed, sparse=sparse, horizon=horizon)
     mtmhsac = MTMHSAC(vec_env.num_envs, obs_dim, act_dim, **cfg.mtmhsac, device=device)
     buffer = ReplayBuffer(buffer_size, seed=seed)
     if exp_type == 'none':
@@ -89,8 +91,8 @@ def main(cfg: DictConfig) -> None:
 
             # fit
             if step > init_steps or epoch != 1:
-                for i in range(vec_env.num_envs):
-                    fit_log = mtmhsac.update(buffer.sample(batch_size))
+                # fit once every vec_env.num_envs (environment) steps
+                fit_log = mtmhsac.update(buffer.sample(batch_size))
                 wandb_log.update(fit_log)
 
             # log to wandb
@@ -98,8 +100,11 @@ def main(cfg: DictConfig) -> None:
                 run.log(wandb_log)
 
         eval_log = evaluate(mtmhsac, eval_envs, num_episodes=eval_episodes)
-        logger.info(eval_log)
-        run.log({key: value.mean() for key, value in eval_log.items()})
+        # logger.info(eval_log)  # do I really need to log this? not actually...?
+        # convert into wandb-friendly format
+        eval_log = {key: value.mean() for key, value in eval_log.items()}
+        eval_log['epoch'] = epoch
+        run.log(eval_log)
 
     vec_env.close()
     for env in eval_envs: env.close()

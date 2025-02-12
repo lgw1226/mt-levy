@@ -1,6 +1,6 @@
 import numpy as np
 import gymnasium as gym
-from algos import MTMHSAC
+from algos.mtmhsac import MTMHSAC
 
 
 def evaluate(mtmhsac: MTMHSAC, eval_envs: list[gym.Env], num_episodes: int = 10) -> dict[str, np.ndarray]:

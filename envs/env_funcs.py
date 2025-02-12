@@ -4,7 +4,7 @@ from wrappers import MTWrapper
 
 import gymnasium as gym
 from omegaconf import OmegaConf, ListConfig
-from envs import SubprocVecEnv
+from envs.subproc_vec_env import SubprocVecEnv
 
 
 
@@ -17,16 +17,24 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
     """
 
     env_fns = []
+
     if isinstance(benchmark, list):
         for env_name in benchmark:
             mt1 = metaworld.MT1(env_name, seed=seed)
             base_env_cls = mt1.train_classes[env_name]
             base_env_tasks = mt1.train_tasks
             def env_fn():
-                base_env = base_env_cls(**kwargs)
-                # return MTWrapper(base_env, base_env_tasks, sparse_reward=True, auto_reset=True, max_path_length=200, seed=seed)
-                return MTWrapper(base_env, base_env_tasks, sparse_reward=False, auto_reset=True, max_path_length=200, seed=seed)  # debug
+                base_env = base_env_cls()
+                return MTWrapper(
+                    base_env,
+                    base_env_tasks,
+                    sparse_reward=kwargs['sparse'],
+                    auto_reset=True,
+                    max_path_length=kwargs['horizon'],
+                    seed=seed
+                )
             env_fns.append(env_fn)
+
     elif isinstance(benchmark, metaworld.Benchmark):    
         for env_name in benchmark.train_classes:
             base_env_cls = benchmark.train_classes[env_name]
@@ -35,30 +43,38 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
                 if task.env_name == env_name:
                     base_env_tasks.append(task)
             def env_fn():
-                base_env = base_env_cls(**kwargs)
-                # return MTWrapper(base_env, base_env_tasks, sparse_reward=True, auto_reset=True, max_path_length=200, seed=seed)
-                return MTWrapper(base_env, base_env_tasks, sparse_reward=False, auto_reset=True, max_path_length=200, seed=seed)  # debug
+                base_env = base_env_cls()
+                return MTWrapper(
+                    base_env,
+                    base_env_tasks,
+                    sparse_reward=kwargs['sparse'],
+                    auto_reset=True,
+                    max_path_length=kwargs['horizon'],
+                    seed=seed
+                )
             env_fns.append(env_fn)
+
     return env_fns
 
-def parse_benchmark(benchmark: Union[list[str], str], seed: int) -> tuple[SubprocVecEnv, list[gym.Env], int, int]:
+def parse_benchmark(benchmark: Union[list[str], str], seed: int, **kwargs) -> tuple[SubprocVecEnv, list[gym.Env], int, int]:
     '''Can be given a list of environment names or a benchmark name.
     Return a SubprocVecEnv, a list of gym environments, observation dimension, and action dimension.
     SubprocVecEnv is a vectorized environment that runs multiple environments in parallel.
     A list of gym environments is used for evaluation.
     '''
+
     if isinstance(benchmark, (list, ListConfig)):
         benchmark = OmegaConf.to_container(benchmark) if isinstance(benchmark, ListConfig) else benchmark
-        env_fns = generate_metaworld_env_fns(benchmark, seed=seed)
+        env_fns = generate_metaworld_env_fns(benchmark, seed, **kwargs)
         obs_dim, act_dim = 39, 4
     elif isinstance(benchmark, str):
         if benchmark == 'MT10':
             mt10 = metaworld.MT10(seed=seed)
-            env_fns = generate_metaworld_env_fns(mt10, seed=seed)
+            env_fns = generate_metaworld_env_fns(mt10, seed, **kwargs)
             obs_dim, act_dim = 39, 4
         elif benchmark == 'MT50':
             mt50 = metaworld.MT50(seed=seed)
-            env_fns = generate_metaworld_env_fns(mt50, seed=seed)
+            env_fns = generate_metaworld_env_fns(mt50, seed, **kwargs)
             obs_dim, act_dim = 39, 4
         else:
             raise ValueError(f'Invalid benchmark name: {benchmark}')
