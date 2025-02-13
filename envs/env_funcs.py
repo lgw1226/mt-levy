@@ -1,4 +1,5 @@
 from typing import Union
+from copy import deepcopy
 import metaworld
 from wrappers import MTWrapper
 
@@ -18,12 +19,17 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
 
     env_fns = []
 
+    if 'sparse' not in kwargs:
+        kwargs['sparse'] = False
+    if 'horizon' not in kwargs:
+        kwargs['horizon'] = 150
+
     if isinstance(benchmark, list):
         for env_name in benchmark:
             mt1 = metaworld.MT1(env_name, seed=seed)
             base_env_cls = mt1.train_classes[env_name]
             base_env_tasks = mt1.train_tasks
-            def env_fn():
+            def env_fn(base_env_cls=base_env_cls, base_env_tasks=base_env_tasks):
                 base_env = base_env_cls()
                 return MTWrapper(
                     base_env,
@@ -38,11 +44,8 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
     elif isinstance(benchmark, metaworld.Benchmark):    
         for env_name in benchmark.train_classes:
             base_env_cls = benchmark.train_classes[env_name]
-            base_env_tasks = []
-            for task in benchmark.train_tasks:
-                if task.env_name == env_name:
-                    base_env_tasks.append(task)
-            def env_fn():
+            base_env_tasks = [task for task in benchmark.train_tasks if task.env_name == env_name]
+            def env_fn(base_env_cls=base_env_cls, base_env_tasks=base_env_tasks):
                 base_env = base_env_cls()
                 return MTWrapper(
                     base_env,
@@ -53,6 +56,9 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
                     seed=seed
                 )
             env_fns.append(env_fn)
+
+    else:
+        raise TypeError(f'Invalid benchmark type: {type(benchmark)}')
 
     return env_fns
 

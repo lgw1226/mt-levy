@@ -11,7 +11,7 @@ from models import MLP, create_mlp_layers
 
 class MTMHSAC:
 
-    log_std_min = -10
+    log_std_min = -20
     log_std_max = 2
 
     def __init__(
@@ -75,7 +75,7 @@ class MTMHSAC:
         self.target_temp = -self.act_dim
         self.log_temp = torch.tensor(self.num_heads * [log(init_temp)], requires_grad=True, device=self.device)
         self.temp_optim = Adam([self.log_temp], lr=temp_lr)
-
+    
     @torch.no_grad()
     def get_action(self, observation: np.ndarray, task_index: int, deterministic: bool = False) -> np.ndarray:
         action, _ = self._get_action(self._tensor(observation), self._tensor(task_index), deterministic=deterministic)
@@ -102,9 +102,9 @@ class MTMHSAC:
         }
 
     def _update_temperature(self, obs: torch.Tensor, idx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        _act, _logp = self._get_action(obs, idx)
-        temp = torch.exp(self.log_temp)[idx]
-        temp_loss = torch.mean(-torch.exp(self.log_temp) * (_logp + self.target_temp).detach())
+        _, _logp = self._get_action(obs, idx)  # (B, 1)
+        temp = torch.exp(self.log_temp)[idx]  # (B,)
+        temp_loss = torch.mean(-temp * (_logp.squeeze() + self.target_temp).detach())
         self.temp_optim.zero_grad()
         temp_loss.backward()
         self.temp_optim.step()
