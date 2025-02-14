@@ -19,13 +19,16 @@ class MTMHSAC:
             num_heads: int,
             observation_dimension: int,
             action_dimension: int,
+            # actor
             actor_hidden_layers: List[int] = [400, 400, 400],
             actor_lr: float = 0.0003,
+            # critic
             critic_hidden_layers: List[int] = [400, 400, 400],
             bound_critic: bool = False,
             critic_optimism: float = 0.2,
             critic_weight_gain: float = 1,
             critic_lr: float = 0.0003,
+            # temperature
             init_temp: float = 0.0001,
             temp_lr: float = 0.0001,
             gamma: float = 0.99,
@@ -103,7 +106,7 @@ class MTMHSAC:
 
     def _update_temperature(self, obs: torch.Tensor, idx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         _, _logp = self._get_action(obs, idx)  # (B, 1)
-        temp = torch.exp(self.log_temp)[idx]  # (B,)
+        temp = torch.exp(self.log_temp)[idx]  # (B,) ???
         temp_loss = torch.mean(-temp * (_logp.squeeze() + self.target_temp).detach())
         self.temp_optim.zero_grad()
         temp_loss.backward()
@@ -163,7 +166,7 @@ class MTMHSAC:
         squashed_action = torch.tanh(action)
         squashed_log_prob = log_prob - torch.sum(torch.log(1 - squashed_action ** 2 + 1e-6), dim=-1, keepdim=True)
         return squashed_action, squashed_log_prob
-
+    
     def save_ckpt(self, path: str):
         ckpt_dict = {
             'actor': self.actor.state_dict(),
