@@ -45,6 +45,10 @@ class MultiHeadActor(nn.Module):
         self.model = self._make_model()
         self.apply(weight_init)
 
+    # type hinting
+    def __call__(self, obs: Tensor, idx: Tensor, sample: bool = True) -> tuple[Tensor, Tensor]:
+        return self.forward(obs, idx, sample)
+
     def forward(
         self,
         obs: Tensor,
@@ -66,10 +70,10 @@ class MultiHeadActor(nn.Module):
             act = dist.rsample()
         else:
             act = mean
-        logp: Tensor = dist.log_prob(act)
+        logp = torch.sum(dist.log_prob(act), dim=-1)
         
         squashed_act, squashed_logp = _squash(act, logp)
-        return squashed_act.squeeze(0), squashed_logp.squeeze(0, -1)
+        return squashed_act.squeeze(0), squashed_logp.squeeze(0)
     
     def _make_model(self) -> nn.Module:
         trunk = MLP(get_arch(self.in_dim, self.hidden_dim, self.hidden_dim, self.num_trunk_layers))
@@ -86,5 +90,5 @@ def _get_std(log_std: Tensor, log_std_min: float, log_std_max: float):
 
 def _squash(act: Tensor, logp: Tensor):
     squashed_act = torch.tanh(act)
-    squashed_logp = (logp - torch.log(1 - squashed_act.pow(2) + 1e-6)).sum(-1, keepdim=True)
+    squashed_logp = logp - torch.log(1 - squashed_act ** 2 + 1e-6).sum(-1)
     return squashed_act, squashed_logp

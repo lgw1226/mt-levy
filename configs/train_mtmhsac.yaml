@@ -52,8 +52,8 @@ agent:
     num_trunk_layers: 3
     num_heads: ${environment.num_envs}
     num_head_layers: 2
-    log_std_min: -20
     log_std_max: 2
+    log_std_min: -20
   actor_optimizer:
     _target_: torch.optim.Adam
     lr: 0.0003

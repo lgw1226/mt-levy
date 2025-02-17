@@ -4,6 +4,7 @@ from math import log
 
 from hydra.utils import instantiate
 import torch
+import torch.nn.functional as F
 import numpy as np
 from numpy import ndarray
 from torch import Tensor
@@ -90,7 +91,7 @@ class MTMHSAC:
     def _update_temperature(self, _logp: Tensor, idx: Tensor) -> tuple[Tensor, Tensor]:
         idx = idx.to(torch.int)
         temp = torch.exp(self.log_temp)[idx]
-        temp_loss = torch.mean(-temp * (_logp + self.target_temp).detach())
+        temp_loss = torch.mean(-temp * (_logp.detach() + self.target_temp))
         self.temp_optim.zero_grad()
         temp_loss.backward()
         self.temp_optim.step()
@@ -112,7 +113,7 @@ class MTMHSAC:
             nq = torch.minimum(nq1, nq2) - temp * nlogp
             td_target = rwd + (1 - done) * self.gamma * nq
         q1, q2 = self.critic(obs, act, idx)
-        critic_loss = 0.5 * torch.mean((q1 - td_target) ** 2 + (q2 - td_target) ** 2)
+        critic_loss = 0.5 * (F.mse_loss(q1, td_target) + F.mse_loss(q2, td_target))
         self.critic_optim.zero_grad()
         critic_loss.backward()
         self.critic_optim.step()
@@ -127,8 +128,8 @@ class MTMHSAC:
             temp: Tensor
     ) -> Tensor:
         _q1, _q2 = self.critic(obs, _act, idx)
-        _q = torch.minimum(_q1, _q2)
-        actor_loss = torch.mean(temp * _logp - _q)
+        _q = torch.minimum(_q1, _q2) - temp * _logp
+        actor_loss = -torch.mean(_q)
         self.actor_optim.zero_grad()
         actor_loss.backward()
         self.actor_optim.step()
