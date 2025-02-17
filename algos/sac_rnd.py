@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.distributions import Normal
-from models import MLP, create_mlp_layers, DoubleCritic
+from components import MLP, create_mlp_layers
 from utils import RunningMeanStd
 
 

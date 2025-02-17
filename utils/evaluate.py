@@ -1,41 +1,83 @@
+import logging
+from typing import Optional
+
 import numpy as np
-import gymnasium as gym
+from wandb.sdk.wandb_run import Run
+from omegaconf import DictConfig
+
 from algos.mtmhsac import MTMHSAC
+from envs.subproc_vec_env import SubprocVecEnv
 
 
-def evaluate(mtmhsac: MTMHSAC, eval_envs: list[gym.Env], num_episodes: int = 10) -> dict[str, np.ndarray]:
+logger = logging.getLogger(__name__)
+
+
+def evaluate(
+    cfg: DictConfig,
+    epoch: int,
+    envs: SubprocVecEnv,
+    mtmhsac: MTMHSAC,
+    run: Optional[Run] = None,
+):
     """Evaluate the agent in the given environments for a number of episodes.
-    The envrionments are reset automatically.
 
-    :param MTMHSAC mtmhsac: The agent to evaluate.
-    :param list[gym.Env] eval_envs: A list of gym environments.
-    :param int num_episodes: The number of episodes to evaluate the agent.
-    :return dict[str, np.ndarray]: A dictionary of evaluation metrics.
+    Each environment runs exactly `num_episodes` episodes independently.
     """
-    mean_return = []
-    success_rate = []
-    ep_len = []
-    for i, env in enumerate(eval_envs):
-        total_rwd = 0
-        success_cnt = 0
-        episode_cnt = 0
-        total_step_cnt = 0
-        obs, _ = env.reset()
-        while episode_cnt < num_episodes:
-            act = mtmhsac.get_action(obs, i, deterministic=True)
-            obs, rwd, ter, tru, info = env.step(act)
-            total_rwd += rwd
-            total_step_cnt += 1
-            if ter or tru:
-                if info['success']:
-                    success_cnt += 1
-                episode_cnt += 1
-        mean_return.append(total_rwd / num_episodes)
-        success_rate.append(success_cnt / num_episodes)
-        ep_len.append(total_step_cnt / num_episodes)
+    logger.info(f"Evaluating agent, epoch {epoch}")
 
-    return {
-        'eval/mean-return': np.array(mean_return),
-        'eval/success-rate': np.array(success_rate),
-        'eval/episode-length': np.array(ep_len),
-    }
+    num_envs = envs.num_envs  # Number of parallel environments
+    num_episodes: int = cfg.evaluation.num_episodes
+
+    # Initialize tracking arrays
+    ep_count = np.zeros(num_envs, dtype=int)  # Track completed episodes per env
+    total_rwd = np.zeros(num_envs, dtype=float)  # Sum of rewards per env
+    success_cnt = np.zeros(num_envs, dtype=int)  # Count of successful episodes per env
+    total_step_cnt = np.zeros(num_envs, dtype=int)  # Track steps correctly
+
+    # Reset environments
+    obs, info = envs.reset()
+
+    # Track which environments are still evaluating
+    active_envs = np.ones(num_envs, dtype=np.bool_)  # True = still evaluating
+
+    while np.any(active_envs):  # Only run until all environments finish num_episodes
+        # Get actions from the agent
+        act = mtmhsac.get_action_all(obs, sample=False)
+
+        # Step through the environment
+        obs, rwd, ter, tru, info = envs.step(act)
+        done = ter | tru  # Compute done masks
+
+        # Accumulate rewards **only for active environments**
+        total_rwd[active_envs] += rwd[active_envs]
+        total_step_cnt[active_envs] += 1
+
+        # Track episode completions and successes
+        ep_count += done  # Increment episode count where `done` is True
+        done_and_active = done & active_envs
+        for i in range(num_envs):
+            if done_and_active[i]:  # Only process finished episodes
+                if info[i]['success']:
+                    success_cnt[i] += 1
+
+        # Mark environments as **finished** if they have completed `num_episodes`
+        active_envs = ep_count < num_episodes  # ✅ Mark finished environments as False
+
+    # Compute metrics per environment
+    mean_return = total_rwd / num_episodes
+    success_rate = success_cnt / num_episodes
+    ep_len = total_step_cnt / num_episodes
+
+    # Log evaluation metrics
+    if run:
+        run.log({
+            "eval/mean_return": mean_return.mean(),
+            "eval/success_rate": success_rate.mean(),
+            "eval/ep_len": ep_len.mean(),
+            "epoch": epoch,
+        })
+    logger.info(
+        f"Return: {mean_return.mean():.2f} | "
+        f"Success Rate: {success_rate.mean():.2f} | "
+        f"Episode Length: {ep_len.mean():.2f}"
+    )

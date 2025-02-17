@@ -1,11 +1,6 @@
 seed: 0
 gpu_index: 0
 
-# environments
-benchmark: MT10
-sparse: True
-horizon: 150
-
 # follows metaworld benchmark
 num_epochs: 200
 eval_episodes: 10
@@ -13,28 +8,61 @@ train_steps: 10000
 init_steps: 1000
 buffer_size: 1000000
 batch_size: 1280
+sr_decay: 0.01
 
 # logging
 log_interval: 100
 ckpt_interval: 20
 ckpt_base_dir: ../sdc/ckpts
 
-exploration:
-  type: none
-  success_rate_decay: 0.01
+environment:
+  benchmark: MT10
+  num_envs: 10
+  obs_dim: 39
+  act_dim: 4
+  sparse: True
+  horizon: 150
 
-mtmhsac:
-  actor_hidden_layers: [400, 400, 400]
-  actor_lr: 0.0003
-  critic_hidden_layers: [400, 400, 400]
-  bound_critic: ${sparse}
-  critic_optimism: 0.2
-  critic_weight_gain: 0.001
-  critic_lr: 0.0003
-  init_temp: 0.001
-  temp_lr: 0.0001
-  gamma: 0.99
-  tau: 0.005
+agent:
+  algo: mtmhsac
+  builder:
+    _target_: algos.mtmhsac.MTMHSAC
+    num_envs: ${environment.num_envs}
+    obs_dim: ${environment.obs_dim}
+    act_dim: ${environment.act_dim}
+    actor_cfg: ${agent.actor}
+    actor_optim_cfg: ${agent.actor_optimizer}
+    critic_cfg: ${agent.critic}
+    critic_optim_cfg: ${agent.critic_optimizer}
+    temp_optim_cfg: ${agent.temperature_optimizer}
+    init_temp: 0.1
+    gamma: 0.99
+    tau: 0.005
+    gpu_index: ${gpu_index}
+  actor:
+    _target_: components.actor.MultiHeadActor
+    hidden_dim: 400
+    num_trunk_layers: 3
+    num_heads: ${environment.num_envs}
+    num_head_layers: 2
+    log_std_min: -20
+    log_std_max: 2
+  actor_optimizer:
+    _target_: torch.optim.Adam
+    lr: 0.0003
+  critic:
+    _target_: components.critic.MultiHeadCritic
+    hidden_dim: 400
+    num_trunk_layers: 3
+    num_heads: ${environment.num_envs}
+    num_head_layers: 2
+    bound: ${environment.sparse}
+  critic_optimizer:
+    _target_: torch.optim.Adam
+    lr: 0.0003
+  temperature_optimizer:
+    _target_: torch.optim.Adam
+    lr: 0.0001
 
 wandb:
   project: iros25

@@ -26,17 +26,17 @@ class QMP(Explorer):
     def __init__(self, agent: MTMHSAC, seed: int, **kwargs: dict[str, Any]):
         super(QMP, self).__init__(agent, seed)
 
-    def get_action(self, obs: tuple[np.ndarray]) -> np.ndarray:
-        actions = []
-        for i in range(self.n_tasks):
-            _act = self._get_action_qmp(obs[i])
+    # def get_action(self, obs: tuple[np.ndarray]) -> np.ndarray:
+    #     actions = []
+    #     for i in range(self.n_tasks):
+    #         _act = self._get_action_qmp(obs[i])
 
-            for j in range(self.agent.num_heads):
-                _acts.append(self.agent.get_action(_obs, j))
-                _qs.append(self.agent.get_q(_obs, _acts[-1], j))
-            # select the action with the highest Q-value
-            actions.append(_acts[np.argmax(_qs)])
-        return actions
+    #         for j in range(self.agent.num_heads):
+    #             _acts.append(self.agent.get_action(_obs, j))
+    #             _qs.append(self.agent.get_q(_obs, _acts[-1], j))
+    #         # select the action with the highest Q-value
+    #         actions.append(_acts[np.argmax(_qs)])
+    #     return actions
         
     def _get_action_qmp(self, obs: np.ndarray) -> np.ndarray:
         """Get action for QMP explorer.

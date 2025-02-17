@@ -1,11 +1,11 @@
-from typing import List, Tuple, Dict
+from typing import List, Tuple
 from copy import deepcopy
 from math import log
 import numpy as np
 import torch
 from torch.optim import Adam
 from torch.distributions import Normal
-from models import MLP
+from components.mlp import MLP
 
 
 class SAC:

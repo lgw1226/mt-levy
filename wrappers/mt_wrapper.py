@@ -33,14 +33,14 @@ class MTWrapper(gym.Wrapper):
         obs, info = self.env.reset(**kwargs)
         return obs, info
     
-    def step(self, action: np.ndarray):
-        obs, reward, terminated, truncated, info = self.env.step(action)
+    def step(self, act: np.ndarray):
+        obs, rwd, ter, tru, info = self.env.step(act)
         info['next_observation'] = obs
         if self.sparse_reward:
-            reward = float(info['success'])
-            terminated = bool(info['success'])
+            rwd = float(info['success'])
+            ter = bool(info['success'])
 
-        if (terminated or truncated) and self.auto_reset:
+        if (ter or tru) and self.auto_reset:
             obs, _ = self.reset()
             
-        return obs, reward, terminated, truncated, info
+        return obs, rwd, ter, tru, info

@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from models import MLP
+from components import MLP
 
 
 class RunningMeanStd():

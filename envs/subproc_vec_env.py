@@ -3,9 +3,11 @@
 '''
 from multiprocessing import Process, Pipe
 from multiprocessing.connection import Connection
+from typing import Optional, Callable
 
 import gymnasium as gym
 import numpy as np
+from numpy.typing import NDArray
 import cloudpickle
 from wrappers import MTWrapper
 
@@ -26,7 +28,12 @@ class CloudpickleWrapper:
         self.var = cloudpickle.loads(var)
 
 
-def _worker(conn: Connection, work_conn: Connection, serialized_env_fn: CloudpickleWrapper, seed: int):
+def _worker(
+    conn: Connection,
+    work_conn: Connection,
+    serialized_env_fn: CloudpickleWrapper,
+    seed: Optional[int] = None
+):
     """Create a worker function that will be used by a `multiprocessing.Process` instance.
 
     :param Connection conn: Connection object used to communicate with the parent process.
@@ -34,9 +41,10 @@ def _worker(conn: Connection, work_conn: Connection, serialized_env_fn: Cloudpic
     """
     conn.close()  # close the parent connection in the subprocess (no need to access main process connection)
 
-    # TODO: seeding, rendering, and other functionalities are not yet supported
+    # TODO: rendering not yet supported
     env: gym.Env = serialized_env_fn.var()
     if isinstance(env, MTWrapper):
+        # seed the environment observation and action spaces
         env.unwrapped.seed(seed)
     while True:
         try:
@@ -75,7 +83,7 @@ class SubprocVecEnv:
         (each callable returns a `Gym.Env` instance when called).
     """
 
-    def __init__(self, env_fns, seed: int):
+    def __init__(self, env_fns: list[Callable[[], gym.Env]], seed: Optional[int] = None):
         self.waiting = False
         self.closed = False
         self.num_envs = len(env_fns)
@@ -84,38 +92,39 @@ class SubprocVecEnv:
         self.conns, self.work_conns = conn_pairs
         self.processes: list[Process] = []
         for rank, (conn, work_conn, env_fn) in enumerate(zip(self.conns, self.work_conns, env_fns)):
-            args = (conn, work_conn, CloudpickleWrapper(env_fn), seed+rank)
-            process = Process(target=_worker, args=args, daemon=True)  # create subprocess instance
+            args = (conn, work_conn, CloudpickleWrapper(env_fn))
+            kwargs = {'seed': seed + rank if isinstance(seed, int) else None}
+            process = Process(target=_worker, args=args, kwargs=kwargs, daemon=True)
             process.start()
             self.processes.append(process)
             work_conn.close()  # close the worker connection in the parent process (no need to access subprocess connection)
 
-    def _step_async(self, actions: tuple[np.ndarray]):
+    def _step_async(self, actions: NDArray):
         for conn, action in zip(self.conns, actions):
             conn.send(('step', action))
         self.waiting = True
 
-    def _step_wait(self) -> tuple[tuple[np.ndarray], tuple[float], tuple[bool], tuple[bool], tuple[dict]]:
+    def _step_wait(self) -> tuple[NDArray, ...]:
         results = [conn.recv() for conn in self.conns]
         self.waiting = False
-        obs, rwd, ter, tru, info = zip(*results)
+        obs, rwd, ter, tru, info = map(lambda x: np.array(x), zip(*results))
         return obs, rwd, ter, tru, info
     
-    def step(self, actions: tuple[np.ndarray]) -> tuple[tuple[np.ndarray], tuple[float], tuple[bool], tuple[bool], tuple[dict]]:
+    def step(self, actions: NDArray) -> tuple[NDArray, ...]:
         self._step_async(actions)
         return self._step_wait()
     
-    def sample_action(self) -> tuple[np.ndarray]:
+    def sample_action(self) -> tuple[NDArray, ...]:
         for conn in self.conns:
             conn.send(('get_attr', 'action_space'))
         results = [conn.recv() for conn in self.conns]
         return tuple([space.sample() for space in results])
 
-    def reset(self) -> tuple[np.ndarray, tuple[dict]]:
+    def reset(self) -> tuple[NDArray, ...]:
         for conn in self.conns:
             conn.send(('reset', None))
         results = [conn.recv() for conn in self.conns]
-        obs, info = zip(*results)  # Unpacking correctly
+        obs, info = map(lambda x: np.array(x), zip(*results))
         return obs, info
     
     def stop(self):
@@ -126,7 +135,7 @@ class SubprocVecEnv:
         '''Return tuple of rendered images.'''
         for conn in self.conns:
             conn.send(('render', None))
-        return tuple([conn.recv() for conn in self.conns])
+        return np.array([conn.recv() for conn in self.conns])
 
     def close(self):
         if self.closed:
