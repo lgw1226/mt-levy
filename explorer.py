@@ -1,30 +1,50 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
+
 import numpy as np
+from numpy.typing import NDArray
+from omegaconf import DictConfig
+
+from envs.subproc_vec_env import SubprocVecEnv
 from algos.mtmhsac import MTMHSAC
 
 
 # Classes of experiments baselines
 
-class Explorer(ABC):
-    @abstractmethod
-    def __init__(self, agent: MTMHSAC, seed: int):
+class BaseExpStrategy(ABC):
+
+    def __init__(
+            self,
+            cfg: DictConfig,
+            env: SubprocVecEnv,
+            agent: MTMHSAC,
+            seed: Optional[int] = None,
+    ):
+        self.cfg = cfg  # contains hyperparameters
         self.agent = agent
-        self.n_tasks = agent.num_heads
-        self.seed = seed
-        self.np_random = np.random.default_rng(seed)
+        self.num_tasks = env.num_envs
+        self.np_random = np.random.default_rng(seed=seed)
 
     @abstractmethod
-    def get_action(self, obs: np.ndarray, task_idx: int):
-        return self.agent.get_action(obs, task_idx)
+    def select_action(self, obs: NDArray, task_idx: int, **kwargs) -> NDArray: pass
 
-class EGreedy(Explorer): pass
+    @abstractmethod
+    def select_action_all(self, obs: NDArray, **kwargs) -> NDArray: pass
 
-class EZGreedy(Explorer): pass
+# class EGreedy(Explorer): pass
 
-class QMP(Explorer):
-    def __init__(self, agent: MTMHSAC, seed: int, **kwargs: dict[str, Any]):
-        super(QMP, self).__init__(agent, seed)
+# class EZGreedy(Explorer): pass
+
+class QMP(BaseExpStrategy):
+
+    def __init__(
+            self,
+            cfg: DictConfig,
+            env: SubprocVecEnv,
+            agent: MTMHSAC,
+            seed: Optional[int] = None,
+    ):
+        super(QMP, self).__init__(cfg, env, agent, seed=seed)
 
     # def get_action(self, obs: tuple[np.ndarray]) -> np.ndarray:
     #     actions = []

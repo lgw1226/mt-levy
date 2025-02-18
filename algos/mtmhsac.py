@@ -18,9 +18,6 @@ from components.utils import soft_update_params
 
 class MTMHSAC:
 
-    log_std_min = -20
-    log_std_max = 2
-
     def __init__(
             self,
             num_envs: int,
@@ -143,6 +140,7 @@ class MTMHSAC:
             'actor': self.actor.state_dict(),
             'actor_optim': self.actor_optim.state_dict(),
             'critic': self.critic.state_dict(),
+            'critic_target': self.critic_target.state_dict(),
             'critic_optim': self.critic_optim.state_dict(),
             'log_temp': self.log_temp.data,
             'temp_optim': self.temp_optim.state_dict(),
@@ -154,6 +152,7 @@ class MTMHSAC:
         self.actor.load_state_dict(ckpt_dict['actor'])
         self.actor_optim.load_state_dict(ckpt_dict['actor_optim'])
         self.critic.load_state_dict(ckpt_dict['critic'])
+        self.critic_target.load_state_dict(ckpt_dict['critic_target'])
         self.critic_optim.load_state_dict(ckpt_dict['critic_optim'])
         self.log_temp.data = ckpt_dict['log_temp']  # nn.Parameter does not have load_state_dict method
         self.temp_optim.load_state_dict(ckpt_dict['temp_optim'])
