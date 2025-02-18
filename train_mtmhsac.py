@@ -2,7 +2,6 @@ import os
 import logging
 from time import time
 from typing import Optional
-from datetime import datetime
 
 import torch
 import numpy as np
@@ -57,7 +56,6 @@ def initialize_wandb(cfg: DictConfig):
         project=cfg.wandb.project,
         name=cfg.wandb.name,
         mode=cfg.wandb.mode,
-        id=datetime.now().strftime('%Y%m%d%H%M%S'),
         config=OmegaConf.to_container(cfg),
     )
 
@@ -81,19 +79,20 @@ def train(
             act = env.sample_action()
         else:
             act = mtmhsac.get_action_all(obs)
-        obs, rwd, ter, tru, info = env.step(act)
+        nobs, rwd, ter, tru, info = env.step(act)
+        done = ter | tru
 
-        # Update training success ratio
-        mask = ter | tru
+        # Update training success ratio when episode is done
         success = np.array([info[i]["success"] for i in range(env.num_envs)])
-        success_rate[mask] \
-            = success_rate[mask] * (1 - cfg.training.sr_decay) \
-            + success[mask] * cfg.training.sr_decay
+        success_rate[done] \
+            = success_rate[done] * (1 - cfg.training.sr_decay) \
+            + success[done] * cfg.training.sr_decay
         train_log["train/success-rate"] = success_rate.mean()
 
-        # Store transitions
-        nobs = np.array([info[i]["next_observation"] for i in range(env.num_envs)])
-        buffer.append(obs, act, rwd, nobs, ter, np.arange(env.num_envs))
+        # Store transitions (nobs could have been reset)
+        _nobs = np.array([info[i]["next_observation"] for i in range(env.num_envs)])
+        buffer.append(obs, act, rwd, _nobs, ter, np.arange(env.num_envs))
+        obs = nobs
 
         # Training step
         if buffer.index >= cfg.training.batch_size or buffer.full:

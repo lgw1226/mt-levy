@@ -118,7 +118,7 @@ class SubprocVecEnv:
         for conn in self.conns:
             conn.send(('get_attr', 'action_space'))
         results = [conn.recv() for conn in self.conns]
-        return tuple([space.sample() for space in results])
+        return np.array([space.sample() for space in results])
 
     def reset(self) -> tuple[NDArray, ...]:
         for conn in self.conns:
