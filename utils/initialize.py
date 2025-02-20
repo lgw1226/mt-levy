@@ -25,11 +25,11 @@ def initialize_agent(cfg: DictConfig, logger: Logger):
 
 def initialize_exploration_strategy(cfg: DictConfig, logger: Logger, agent) -> BaseExpStrategy:
     logger.info("Initializing exploration strategy")
-    return instantiate(cfg.exploration_strategy, agent=agent)
+    return instantiate(cfg.exploration_strategy.builder, agent=agent)
 
 def initialize_buffer(cfg: DictConfig, logger: Logger):
     logger.info("Initializing replay buffer")
-    return instantiate(cfg.buffer)
+    return instantiate(cfg.buffer.builder)
 
 def initialize_wandb(cfg: DictConfig, logger: Logger) -> Optional[Run]:
     if not cfg.logging.use_wandb:

@@ -52,7 +52,7 @@ def train(
         if epoch == 1 and step <= cfg.training.init_steps:
             act = env.sample_action()
         else:
-            act = exp_strategy.get_action(obs, success_rate)
+            act = exp_strategy.get_action(obs, success_rate=success_rate)
         nobs, rwd, ter, tru, info = env.step(act)
         done = ter | tru
 

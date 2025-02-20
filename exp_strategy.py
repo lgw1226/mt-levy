@@ -18,66 +18,35 @@ class BaseExpStrategy:
         self.agent = agent
         self.np_random = np.random.default_rng(seed=seed)
 
-    def get_action(self, obs: NDArray) -> NDArray:
+    def get_action(self, obs: NDArray, **kwargs) -> NDArray:
         return self.agent.get_action(obs)
 
-# class EGreedy(Explorer): pass
 
-# class EZGreedy(Explorer): pass
+class QMP(BaseExpStrategy):
 
-# class QMP(BaseExpStrategy):
+    def __init__(
+            self,
+            agent: MTMHSAC,
+            seed: Optional[int] = None,
+    ):
+        super(QMP, self).__init__(agent, seed=seed)
 
-#     def __init__(
-#             self,
-#             cfg: DictConfig,
-#             env: SubprocVecEnv,
-#             agent: MTMHSAC,
-#             seed: Optional[int] = None,
-#     ):
-#         super(QMP, self).__init__(cfg, env, agent, seed=seed)
-
-#     # def get_action(self, obs: tuple[np.ndarray]) -> np.ndarray:
-#     #     actions = []
-#     #     for i in range(self.n_tasks):
-#     #         _act = self._get_action_qmp(obs[i])
-
-#     #         for j in range(self.agent.num_heads):
-#     #             _acts.append(self.agent.get_action(_obs, j))
-#     #             _qs.append(self.agent.get_q(_obs, _acts[-1], j))
-#     #         # select the action with the highest Q-value
-#     #         actions.append(_acts[np.argmax(_qs)])
-#     #     return actions
-        
-#     def _get_action_qmp(self, obs: np.ndarray) -> np.ndarray:
-#         """Get action for QMP explorer.
-        
-#         Return actions for all tasks.
-#         :param np.ndarray obs: obs of shape (obs_dim,).
-#         """
-#         obs = self.agent._tensor(obs)
-#         mean, log_std = torch.chunk(self.agent.actor(obs), 2, dim=-1)
-#         mean = mean.reshape(self.agent.num_heads, self.agent.act_dim)
-#         log_std = log_std.reshape(self.agent.num_heads, self.agent.act_dim)
-#         log_std = self.agent._bound_log_std(log_std)
-#         dist = torch.distributions.Normal(mean, torch.exp(log_std))
-#         action = dist.rsample()
-#         squashed_action = torch.tanh(action)
-#         return self.agent._ndarray(squashed_action)
+    def get_action(self, obs: NDArray, **kwargs) -> NDArray:
+        n_envs = len(obs)
+        obs_repeat = obs.repeat(n_envs, axis=0)
+        task_idx = np.tile(np.arange(n_envs), n_envs)
+        act_repeat = self.agent.get_action(obs_repeat, task_idx)
+        q_repeat = self._get_q(obs_repeat, act_repeat, task_idx).reshape(n_envs, n_envs)
+        max_idx = np.argmax(q_repeat, axis=1)
+        act = act_repeat.reshape(n_envs, n_envs, -1)[np.arange(n_envs), max_idx]
+        return act
     
-#     def _get_q_values(self, obs: np.ndarray, action: np.ndarray) -> np.ndarray:
-#         """Get Q-values for QMP explorer.
-        
-#         Return Q-values for all tasks.
-#         :param np.ndarray obs: obs of shape (obs_dim,).
-#         :param np.ndarray action: Action of shape (n_tasks, act_dim).
-#         """
-#         obs = self.agent._tensor(obs).unsqueeze(0).repeat(self.n_tasks, 1)
-#         action = self.agent._tensor(action)
-#         q_values = []
-#         for i in range(self.agent.num_heads):
-#             q_values.append(self.agent.get_q(obs, action, i))
-#         return self.agent._ndarray(q_values)
-
+    def _get_q(self, obs: NDArray, act: NDArray, idx: NDArray) -> NDArray:
+        obs, act, idx = map(self.agent._tensor, (obs, act, idx))
+        q1, q2 = self.agent.critic(obs, act, idx)
+        q1, q2 = map(self.agent._ndarray, (q1, q2))
+        return np.minimum(q1, q2)
+    
 
 class MTLevy(BaseExpStrategy):
 
@@ -101,7 +70,7 @@ class MTLevy(BaseExpStrategy):
         # sample indices for exploration
         idx = []
         for i in range(self.num_tasks):
-            candidate_idx.append(i)
+            if i not in candidate_idx: candidate_idx.append(i)
             if not self.is_exploring[i]:
                 step_size = self.np_random.pareto(alpha[i])
                 if step_size < 2:

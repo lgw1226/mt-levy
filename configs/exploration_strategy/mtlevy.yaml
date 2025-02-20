@@ -1,0 +1,11 @@
+max_exploration_duration: 15
+top_n: 10
+alpha_lower_bound: 2
+builder:
+  _target_: exp_strategy.MTLevy
+  num_tasks: ${environment.num_envs}
+  horizon: ${environment.horizon}
+  max_exploration_duration: ${exploration_strategy.max_exploration_duration}
+  top_n: ${exploration_strategy.top_n}
+  alpha_lower_bound: ${exploration_strategy.alpha_lower_bound}
+  seed: ${seed}

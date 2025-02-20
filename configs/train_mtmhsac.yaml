@@ -32,6 +32,9 @@ environment:
 
 agent:
   type: mtmhsac
+  init_temp: 0.1
+  gamma: 0.99
+  tau: 0.005
   builder:
     _target_: algos.mtmhsac.MTMHSAC
     num_envs: ${environment.num_envs}
@@ -42,9 +45,9 @@ agent:
     critic_cfg: ${agent.critic}
     critic_optim_cfg: ${agent.critic_optimizer}
     temp_optim_cfg: ${agent.temperature_optimizer}
-    init_temp: 0.1
-    gamma: 0.99
-    tau: 0.005
+    init_temp: ${agent.init_temp}
+    gamma: ${agent.gamma}
+    tau: ${agent.tau}
     gpu_index: ${gpu_index}
   actor:
     _target_: components.actor.MultiHeadActor
@@ -80,13 +83,6 @@ buffer:
     act_dim: ${environment.act_dim}
     seed: ${seed}
 
-exploration_strategy:
-  type: mtlevy
-  builder:
-    _target_: exp_strategy.MTLevy
-    num_tasks: ${environment.num_envs}
-    horizon: ${environment.horizon}
-    max_exploration_duration: 30
-    top_n: 5
-    alpha_lower_bound: 1.2
-    seed: ${seed}
+defaults:
+  - exploration_strategy: mtlevy
+  - _self_
