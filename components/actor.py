@@ -35,6 +35,10 @@ class Actor(nn.Module):
         self.model = self._make_model()
         self.apply(weight_init)
 
+    # type hinting
+    def __call__(self, obs: Tensor, sample: bool = True) -> tuple[Tensor, Tensor]:
+        return self.forward(obs, sample)
+
     def forward(
         self,
         obs: Tensor,
@@ -52,10 +56,10 @@ class Actor(nn.Module):
             act = dist.rsample()
         else:
             act = mean
-        logp: Tensor = dist.log_prob(act)
+        logp = torch.sum(dist.log_prob(act), dim=-1)
         
         squashed_act, squashed_logp = _squash(act, logp)
-        return squashed_act.squeeze(0), squashed_logp.squeeze(0, -1)
+        return squashed_act.squeeze(0), squashed_logp.squeeze(0)
     
     def _make_model(self) -> nn.Module:
         return MLP(get_arch(self.in_dim, self.out_dim, self.hidden_dim, self.num_layers))
@@ -87,6 +91,7 @@ class MultiHeadActor(nn.Module):
         self.log_std_min = log_std_min
         self.kwargs = kwargs
 
+        self.task_idx_to_mask = torch.eye(self.num_heads)
         self.model = self._make_model()
         self.apply(weight_init)
 
@@ -104,9 +109,9 @@ class MultiHeadActor(nn.Module):
             obs = obs.unsqueeze(0)
             idx = idx.unsqueeze(0)
         idx = idx.to(torch.int)
-        aranged = torch.arange(obs.size(0), device=obs.device)
-
-        out: Tensor = self.model(obs)[idx, aranged]
+        
+        mask = self._get_mask(idx)
+        out = torch.sum(self.model(obs) * mask, dim=0)
         mean, log_std = out.chunk(2, dim=-1)
         std = _get_std(log_std, self.log_std_min, self.log_std_max)
         dist = Normal(mean, std)
@@ -119,6 +124,13 @@ class MultiHeadActor(nn.Module):
         
         squashed_act, squashed_logp = _squash(act, logp)
         return squashed_act.squeeze(0), squashed_logp.squeeze(0)
+    
+    def _get_mask(self, task_idx: Tensor) -> Tensor:
+        task_idx_to_mask = self.task_idx_to_mask.to(task_idx.device)
+        mask = task_idx_to_mask[task_idx]
+        if mask.ndim == 1:
+            mask = mask.unsqueeze(0)
+        return mask.t().unsqueeze(2).to(task_idx.device)
     
     def _make_model(self) -> nn.Module:
         trunk = MLP(get_arch(self.in_dim, self.hidden_dim, self.hidden_dim, self.num_trunk_layers))

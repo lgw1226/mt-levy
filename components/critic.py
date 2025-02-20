@@ -18,7 +18,7 @@ class Critic(nn.Module):
             num_layers: int,
             **kwargs: dict[str, Any],
     ):
-        super(MultiHeadCritic, self).__init__()
+        super(Critic, self).__init__()
         self.obs_dim = obs_dim
         self.act_dim = act_dim
         self.in_dim: int = obs_dim + act_dim
@@ -31,7 +31,11 @@ class Critic(nn.Module):
         self.q2 = self._make_q()
         self.apply(weight_init)
 
-    def forward(self, obs: Tensor, act: Tensor, idx: Tensor) -> tuple[Tensor, Tensor]:
+    # type hinting
+    def __call__(self, obs: Tensor, act: Tensor) -> tuple[Tensor, Tensor]:
+        return self.forward(obs, act)
+
+    def forward(self, obs: Tensor, act: Tensor) -> tuple[Tensor, Tensor]:
         if obs.dim() == 1:
             obs = obs.unsqueeze(0)
             act = act.unsqueeze(0)
@@ -72,9 +76,14 @@ class MultiHeadCritic(nn.Module):
         self.num_head_layers = num_head_layers
         self.kwargs = kwargs
 
+        self.task_idx_to_mask = torch.eye(self.num_heads)
         self.q1 = self._make_q()
         self.q2 = self._make_q()
         self.apply(weight_init)
+
+    # type hinting
+    def __call__(self, obs: Tensor, act: Tensor, idx: Tensor) -> tuple[Tensor, Tensor]:
+        return self.forward(obs, act, idx)
 
     def forward(self, obs: Tensor, act: Tensor, idx: Tensor) -> tuple[Tensor, Tensor]:
         if obs.dim() == 1:
@@ -82,12 +91,19 @@ class MultiHeadCritic(nn.Module):
             act = act.unsqueeze(0)
             idx = idx.unsqueeze(0)
         idx = idx.to(torch.int)
-        aranged = torch.arange(obs.size(0), device=obs.device)
-
+        
+        mask = self._get_mask(idx)
         x = torch.cat([obs, act], dim=-1)
-        q1: Tensor = self.q1(x)[idx, aranged]
-        q2: Tensor = self.q2(x)[idx, aranged]
+        q1 = torch.sum(self.q1(x) * mask, dim=0)
+        q2 = torch.sum(self.q2(x) * mask, dim=0)
         return q1.squeeze(0, -1), q2.squeeze(0, -1)
+    
+    def _get_mask(self, task_idx: Tensor) -> Tensor:
+        task_idx_to_mask = self.task_idx_to_mask.to(task_idx.device)
+        mask = task_idx_to_mask[task_idx]
+        if mask.ndim == 1:
+            mask = mask.unsqueeze(0)
+        return mask.t().unsqueeze(2).to(task_idx.device)
 
     def _make_q(self) -> nn.Module:
         trunk_arch = get_arch(self.in_dim, self.hidden_dim, self.hidden_dim, self.num_trunk_layers)

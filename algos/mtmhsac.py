@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Union, Optional
 from copy import deepcopy
 from math import log
 
@@ -6,7 +6,7 @@ from hydra.utils import instantiate
 import torch
 import torch.nn.functional as F
 import numpy as np
-from numpy import ndarray
+from numpy.typing import NDArray
 from torch import Tensor
 from torch.nn import Module, Parameter
 from torch.optim import Optimizer
@@ -59,17 +59,12 @@ class MTMHSAC:
         self.temp_optim: Optimizer = instantiate(temp_optim_cfg, params=[self.log_temp])
 
     @torch.no_grad()
-    def get_action(self, obs: ndarray, idx: int, sample: bool = True) -> ndarray:
+    def get_action(self, obs: NDArray, idx: Optional[Union[NDArray, int]] = None, sample: bool = True) -> NDArray:
+        if idx is None: idx = torch.arange(self.num_envs, dtype=torch.int, device=self.device)
         act, logp = self.actor(self._tensor(obs), self._tensor(idx), sample=sample)
         return self._ndarray(act)
     
-    @torch.no_grad()
-    def get_action_all(self, obs: ndarray, sample: bool = True) -> ndarray:
-        idx = torch.arange(self.num_envs, dtype=torch.int, device=self.device)
-        act, logp = self.actor(self._tensor(obs), idx, sample=sample)
-        return self._ndarray(act)
-    
-    def update(self, batch: tuple[ndarray, ...]) -> dict[str, float]:
+    def update(self, batch: tuple[NDArray, ...]) -> dict[str, float]:
         obs, act, rwd, nobs, done, idx = map(self._tensor, batch)
         _act, _logp = self.actor(obs, idx)
 
@@ -158,8 +153,8 @@ class MTMHSAC:
         self.log_temp.data = ckpt_dict['log_temp']  # nn.Parameter does not have load_state_dict method
         self.temp_optim.load_state_dict(ckpt_dict['temp_optim'])
 
-    def _tensor(self, data: ndarray) -> Tensor:
+    def _tensor(self, data: NDArray) -> Tensor:
         return torch.as_tensor(data, dtype=torch.float32, device=self.device)
     
-    def _ndarray(self, data: Tensor) -> ndarray:
+    def _ndarray(self, data: Tensor) -> NDArray:
         return data.detach().cpu().numpy()

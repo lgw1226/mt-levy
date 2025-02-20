@@ -60,24 +60,36 @@ def generate_metaworld_env_fns(benchmark: Union[metaworld.Benchmark, list[str]],
 
     return env_fns
 
-def parse_benchmark(benchmark: Union[list[str], str], seed: Optional[int] = None, **kwargs) -> SubprocVecEnv:
-    '''Can be given a list of environment names or a benchmark name.
-
-    :return SubprocVecEnv: Vectorized environments.
-    '''
+def parse_benchmark(benchmark: Union[list[str], str], seed: Optional[int] = None, **kwargs) -> Union[SubprocVecEnv, MTWrapper]:
 
     if isinstance(benchmark, (list, ListConfig)):
         benchmark = OmegaConf.to_container(benchmark) if isinstance(benchmark, ListConfig) else benchmark
         env_fns = generate_metaworld_env_fns(benchmark, seed=seed, **kwargs)
+
     elif isinstance(benchmark, str):
         if benchmark == 'MT10':
             mt10 = metaworld.MT10(seed=seed)
             env_fns = generate_metaworld_env_fns(mt10, seed=seed, **kwargs)
+            
         elif benchmark == 'MT50':
             mt50 = metaworld.MT50(seed=seed)
             env_fns = generate_metaworld_env_fns(mt50, seed=seed, **kwargs)
+
+        elif benchmark in metaworld.MT1.ENV_NAMES:
+            mt1 = metaworld.MT1(benchmark, seed=seed)
+            return MTWrapper(
+                mt1.train_classes[benchmark](),
+                mt1.train_tasks,
+                seed=seed,
+                sparse_reward=kwargs.get('sparse', False),
+                auto_reset=True,
+                max_path_length=kwargs.get('horizon', 150)
+            )
+        
         else:
             raise ValueError(f'Invalid benchmark name: {benchmark}')
+        
     else:
         raise TypeError(f'Invalid benchmark type: {type(benchmark)}')
+    
     return SubprocVecEnv(env_fns, seed=seed)

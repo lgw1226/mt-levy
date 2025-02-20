@@ -2,16 +2,18 @@ from typing import Optional
 from math import log
 from copy import deepcopy
 
-import numpy as np
+from numpy import ndarray as NDArray
 import torch
+import torch.nn.functional as F
+from torch import Tensor
 from torch.nn import Module, Parameter
 from torch.optim import Optimizer
-from torch.distributions import Normal
-
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from components import Actor, Critic
+from components.actor import Actor
+from components.critic import Critic
+from components.utils import soft_update_params
 
 
 class SAC:
@@ -54,92 +56,25 @@ class SAC:
         self.temp_optim: Optimizer = instantiate(temp_optim_cfg, params=[self.log_temp])
 
     @torch.no_grad()
-    def get_action(self, obs: np.ndarray, sample: bool = True) -> np.ndarray:
+    def get_action(self, obs: NDArray, sample: bool = True) -> NDArray:
         act, logp = self.actor(self._tensor(obs), sample=sample)
         return self._ndarray(act)
     
-    @torch.no_grad()
-    def get_action_logs(self, observation: np.ndarray, deterministic: bool = False) -> Tuple[np.ndarray, np.ndarray]:
-        # convert observation to tensor
-        observation = self._tensor(observation)
-
-        # get mean and log_std from the actor
-        mean, log_std = torch.chunk(self.actor(observation), 2, dim=-1)
-        log_std = self._bound_log_std(log_std)
-        dist = Normal(mean, torch.exp(log_std))
-
-        # sample action and log probability from the normal distribution
-        action = dist.rsample() if not deterministic else mean
-        log_prob = torch.sum(dist.log_prob(action), dim=-1, keepdim=True)
-
-        # squash the action and correct the log probability
-        squashed_action = torch.tanh(action)
-        squashed_log_prob = log_prob - torch.sum(torch.log(1 - squashed_action ** 2 + 1e-6), dim=-1, keepdim=True)
-
-        return self._ndarray(squashed_action), self._ndarray(log_std)
-    
-    def update(self, batch: tuple[np.ndarray, ...]):
-        # unpack batch
+    def update(self, batch: tuple[NDArray, NDArray, float, NDArray, bool]) -> dict[str, float]:
         obs, act, rwd, nobs, done = map(self._tensor, batch)
-        rwd = rwd.unsqueeze(-1)
-        done = done.unsqueeze(-1)
+        _act, _logp = self.actor(obs)
 
-        # update temperature
-        _act, _logp = self._get_action(obs)
-        temp = torch.exp(self.log_temp)
-        temp_loss = torch.mean(-torch.exp(self.log_temp) * (_logp + self.target_temp).detach())
-        self.temp_optim.zero_grad()
-        temp_loss.backward()
-        self.temp_optim.step()
-        temp = temp.detach()
-
-        # update critics
-        with torch.no_grad():
-            nact, nlogp = self._get_action(nobs)
-            nq1 = self.target1(torch.cat([nobs, nact], dim=-1))
-            nq2 = self.target2(torch.cat([nobs, nact], dim=-1))
-            nq = torch.minimum(nq1, nq2) - temp * nlogp
-            td_target = rwd + (1 - done) * self.gamma * nq
-        q1 = self.critic1(torch.cat([obs, act], dim=-1))
-        q2 = self.critic2(torch.cat([obs, act], dim=-1))
-        critic_loss = 0.5 * torch.mean((q1 - td_target) ** 2 + (q2 - td_target) ** 2)
-        self.critic_optim.zero_grad()
-        critic_loss.backward()
-        self.critic_optim.step()
-
-        # update actor
-        _q1 = self.critic1(torch.cat([obs, _act], dim=-1))
-        _q2 = self.critic2(torch.cat([obs, _act], dim=-1))
-        _q = torch.minimum(_q1, _q2)
-        actor_loss = torch.mean(temp * _logp - _q)
-        self.actor_optim.zero_grad()
-        actor_loss.backward()
-        self.actor_optim.step()
-
-        # update target networks
+        temp_loss, temp = self._update_temperature(_logp)
+        critic_loss = self._update_critics(obs, act, rwd, nobs, done, temp)
+        actor_loss = self._update_actor(obs, _act, _logp, temp)
         self._update_targets()
 
-        return actor_loss.item(), critic_loss.item(), temp_loss.item(), temp.item()
-
-    def _update_targets(self):
-        for target, critic in zip([self.target1, self.target2], [self.critic1, self.critic2]):
-            csd = critic.state_dict()
-            tsd = target.state_dict()
-            for k in tsd.keys():
-                tsd[k] = self.tau * csd[k] + (1 - self.tau) * tsd[k]
-            target.load_state_dict(tsd)
-
-    def _bound_log_std(self, log_std: torch.Tensor) -> torch.Tensor:
-        log_std = torch.tanh(log_std)
-        scale = (self.log_std_max - self.log_std_min) / 2
-        shift = (self.log_std_max + self.log_std_min) / 2
-        return scale * log_std + shift
-    
-    def _tensor(self, data: np.ndarray) -> torch.Tensor:
-        return torch.tensor(data, dtype=torch.float32, device=self.device)
-    
-    def _ndarray(self, data: torch.Tensor) -> np.ndarray:
-        return data.detach().cpu().numpy()
+        return {
+            'train/loss/actor': actor_loss.item(),
+            'train/loss/critic': critic_loss.item(),
+            'train/loss/temperature': temp_loss.item(),
+            'train/temperature': temp.mean().item(),
+        }
     
     def save_ckpt(self, path: str):
         ckpt_dict = {
@@ -162,3 +97,57 @@ class SAC:
         self.critic_optim.load_state_dict(ckpt_dict['critic_optim'])
         self.log_temp.data = ckpt_dict['log_temp']  # nn.Parameter does not have load_state_dict method
         self.temp_optim.load_state_dict(ckpt_dict['temp_optim'])
+    
+    def _update_temperature(self, _logp: Tensor) -> tuple[Tensor, Tensor]:
+        temp = torch.exp(self.log_temp)
+        temp_loss = torch.mean(-temp * (_logp.detach() + self.target_temp))
+        self.temp_optim.zero_grad()
+        temp_loss.backward()
+        self.temp_optim.step()
+        return temp_loss, temp.detach()
+    
+    def _update_critics(
+            self,
+            obs: Tensor,
+            act: Tensor,
+            rwd: Tensor,
+            nobs: Tensor,
+            done: Tensor,
+            temp: Tensor,
+    ) -> Tensor:
+        with torch.no_grad():
+            nact, nlogp = self.actor(nobs)
+            nq1, nq2 = self.critic_target(nobs, nact)
+            nq = torch.minimum(nq1, nq2) - temp * nlogp
+            td_target = rwd + (1 - done) * self.gamma * nq
+        q1, q2 = self.critic(obs, act)
+        critic_loss = 0.5 * (F.mse_loss(q1, td_target) + F.mse_loss(q2, td_target))
+        self.critic_optim.zero_grad()
+        critic_loss.backward()
+        self.critic_optim.step()
+        return critic_loss
+    
+    def _update_actor(
+            self,
+            obs: Tensor,
+            _act: Tensor,
+            _logp:Tensor,
+            temp: Tensor
+    ) -> Tensor:
+        _q1, _q2 = self.critic(obs, _act)
+        _q = torch.minimum(_q1, _q2) - temp * _logp
+        actor_loss = -torch.mean(_q)
+        self.actor_optim.zero_grad()
+        actor_loss.backward()
+        self.actor_optim.step()
+        return actor_loss
+
+    def _update_targets(self):
+        soft_update_params(self.critic.q1, self.critic_target.q1, self.tau)
+        soft_update_params(self.critic.q2, self.critic_target.q2, self.tau)
+    
+    def _tensor(self, data: NDArray) -> Tensor:
+        return torch.tensor(data, dtype=torch.float32, device=self.device)
+    
+    def _ndarray(self, data: Tensor) -> NDArray:
+        return data.detach().cpu().numpy()

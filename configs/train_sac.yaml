@@ -5,8 +5,7 @@ training:
   num_epochs: 200
   train_steps: 10000
   init_steps: 1000
-  batch_size: 1280
-  sr_decay: 0.01
+  batch_size: 128
 
 evaluation:
   num_episodes: 10
@@ -19,22 +18,20 @@ logging:
 
 wandb:
   project: iros25
-  name: MTMHSAC
+  name: SAC
   mode: online
 
 environment:
-  benchmark: MT10
-  num_envs: 10
+  benchmark: reach-v2
   obs_dim: 39
   act_dim: 4
   sparse: False
   horizon: 150
 
 agent:
-  type: mtmhsac
+  algo: sac
   builder:
-    _target_: algos.mtmhsac.MTMHSAC
-    num_envs: ${environment.num_envs}
+    _target_: algos.sac.SAC
     obs_dim: ${environment.obs_dim}
     act_dim: ${environment.act_dim}
     actor_cfg: ${agent.actor}
@@ -47,22 +44,18 @@ agent:
     tau: 0.005
     gpu_index: ${gpu_index}
   actor:
-    _target_: components.actor.MultiHeadActor
+    _target_: components.actor.Actor
     hidden_dim: 400
-    num_trunk_layers: 3
-    num_heads: ${environment.num_envs}
-    num_head_layers: 2
+    num_layers: 3
     log_std_max: 2
     log_std_min: -20
   actor_optimizer:
     _target_: torch.optim.Adam
     lr: 0.0003
   critic:
-    _target_: components.critic.MultiHeadCritic
+    _target_: components.critic.Critic
     hidden_dim: 400
-    num_trunk_layers: 3
-    num_heads: ${environment.num_envs}
-    num_head_layers: 2
+    num_layers: 3
     bound: ${environment.sparse}
   critic_optimizer:
     _target_: torch.optim.Adam
@@ -72,21 +65,8 @@ agent:
     lr: 0.0001
 
 buffer:
-  type: mt_replay_buffer
-  builder:
-    _target_: buffers.replay_buffer.MTReplayBuffer
-    capacity: 1000000
-    obs_dim: ${environment.obs_dim}
-    act_dim: ${environment.act_dim}
-    seed: ${seed}
-
-exploration_strategy:
-  type: mtlevy
-  builder:
-    _target_: exp_strategy.MTLevy
-    num_tasks: ${environment.num_envs}
-    horizon: ${environment.horizon}
-    max_exploration_duration: 30
-    top_n: 5
-    alpha_lower_bound: 1.2
-    seed: ${seed}
+  _target_: buffers.replay_buffer.ReplayBuffer
+  capacity: 1000000
+  obs_dim: ${environment.obs_dim}
+  act_dim: ${environment.act_dim}
+  seed: ${seed}

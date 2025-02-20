@@ -1,22 +1,28 @@
 import os
 import logging
+from logging import Logger
 from time import time
 from typing import Optional
 
 import torch
 import numpy as np
 from numpy.typing import NDArray
-import wandb
 from wandb.sdk.wandb_run import Run
 import hydra
-from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from tqdm import trange
 
 from algos import MTMHSAC
 from buffers import MTReplayBuffer
-from envs import parse_benchmark
-from utils import evaluate
+from utils import (
+    initialize_envs,
+    initialize_agent,
+    initialize_buffer,
+    initialize_exploration_strategy,
+    initialize_wandb,
+    save_ckpt,
+)
+from exp_strategy import BaseExpStrategy
 from envs import SubprocVecEnv
 
 
@@ -24,53 +30,21 @@ from envs import SubprocVecEnv
 os.makedirs('logs', exist_ok=True)
 logger = logging.getLogger(__name__)
 
-
-def initialize_envs(cfg: DictConfig) -> SubprocVecEnv:
-    logger.info("Initializing environments")
-    return parse_benchmark(
-        cfg.environment.benchmark,
-        cfg.seed,
-        sparse=cfg.environment.sparse,
-        horizon=cfg.environment.horizon,
-    )
-
-def initialize_agent(cfg: DictConfig) -> MTMHSAC:
-    logger.info("Initializing agent")
-    return instantiate(cfg.agent.builder, _recursive_=False)
-
-def initialize_buffer(cfg: DictConfig) -> MTReplayBuffer:
-    logger.info("Initializing replay buffer")
-    return MTReplayBuffer(
-        cfg.buffer.buffer_size,
-        cfg.environment.obs_dim,
-        cfg.environment.act_dim,
-        seed=cfg.seed,
-    )
-
-def initialize_wandb(cfg: DictConfig):
-    if not cfg.logging.use_wandb:
-        return None
-
-    logger.info("Initializing wandb")
-    return wandb.init(
-        project=cfg.wandb.project,
-        name=cfg.wandb.name,
-        mode=cfg.wandb.mode,
-        config=OmegaConf.to_container(cfg),
-    )
-
 def train(
     cfg: DictConfig,
+    logger: Logger,
     epoch: int,
     success_rate: NDArray,
     env: SubprocVecEnv,
     mtmhsac: MTMHSAC,
+    exp_strategy: BaseExpStrategy,
     buffer: MTReplayBuffer,
     run: Optional[Run] = None,
 ):
     start = time()
 
     obs, _ = env.reset()
+    success = np.zeros(env.num_envs, dtype=np.bool_)
     for step in trange(1, cfg.training.train_steps + 1, desc=f"Epoch {epoch}", unit="step"):
         train_log = {"step": (epoch - 1) * cfg.training.train_steps + step}  # total steps
 
@@ -78,15 +52,16 @@ def train(
         if epoch == 1 and step <= cfg.training.init_steps:
             act = env.sample_action()
         else:
-            act = mtmhsac.get_action_all(obs)
+            act = exp_strategy.get_action(obs, success_rate)
         nobs, rwd, ter, tru, info = env.step(act)
         done = ter | tru
 
         # Update training success ratio when episode is done
-        success = np.array([info[i]["success"] for i in range(env.num_envs)])
+        success = np.logical_or(success, np.array([info[i]["success"] for i in range(env.num_envs)]))
         success_rate[done] \
             = success_rate[done] * (1 - cfg.training.sr_decay) \
             + success[done] * cfg.training.sr_decay
+        success[done] = False
         train_log["train/success-rate"] = success_rate.mean()
 
         # Store transitions (nobs could have been reset)
@@ -107,31 +82,92 @@ def train(
     end = time()
     logger.info(f"Epoch {epoch} complete | Elapsed Time: {end - start:.2f} (seconds)")
 
+def evaluate(
+    cfg: DictConfig,
+    logger: Logger,
+    epoch: int,
+    env: SubprocVecEnv,
+    sac: MTMHSAC,
+    run: Optional[Run] = None,
+):
+    logger.info(f"Evaluating agent, epoch {epoch}")
+
+    num_envs = env.num_envs  # Number of parallel environments
+    num_episodes: int = cfg.evaluation.num_episodes
+
+    # Initialize tracking arrays
+    ep_count = np.zeros(num_envs, dtype=int)  # Track completed episodes per env
+    total_rwd = np.zeros(num_envs, dtype=float)  # Sum of rewards per env
+    success_cnt = np.zeros(num_envs, dtype=int)  # Count of successful episodes per env
+    total_step_cnt = np.zeros(num_envs, dtype=int)  # Track steps correctly
+
+    # Reset environments
+    success = np.zeros(num_envs, dtype=np.bool_)
+    obs, info = env.reset()
+
+    # Track which environments are still evaluating
+    active_envs = np.ones(num_envs, dtype=np.bool_)  # True = still evaluating
+
+    while np.any(active_envs):  # Only run until all environments finish num_episodes
+        # Get actions from the agent
+        act = sac.get_action(obs, sample=False)
+
+        # Step through the environment
+        obs, rwd, ter, tru, info = env.step(act)
+        success = np.logical_or(success, np.array([info[i]["success"] for i in range(num_envs)]))
+        done = ter | tru  # Compute done masks
+
+        # Accumulate rewards **only for active environments**
+        total_rwd[active_envs] += rwd[active_envs]
+        total_step_cnt[active_envs] += 1
+
+        # Track episode completions and successes
+        ep_count += done  # Increment episode count where `done` is True
+        done_and_active = done & active_envs
+        for i in range(num_envs):
+            if done_and_active[i] and success[i]:  # Only process finished episodes
+                success_cnt[i] += 1
+
+        # Mark environments as **finished** if they have completed `num_episodes`
+        active_envs = ep_count < num_episodes  # ✅ Mark finished environments as False
+
+    # Compute metrics per environment
+    mean_return = total_rwd / num_episodes
+    success_rate = success_cnt / num_episodes
+    ep_len = total_step_cnt / num_episodes
+
+    # Log evaluation metrics
+    if run:
+        run.log({
+            "eval/mean_return": mean_return.mean(),
+            "eval/success_rate": success_rate.mean(),
+            "eval/ep_len": ep_len.mean(),
+            "epoch": epoch,
+        })
+    logger.info(
+        f"Return: {mean_return.mean():.2f} | "
+        f"Success Rate: {success_rate.mean():.2f} | "
+        f"Episode Length: {ep_len.mean():.2f}"
+    )
+
 @hydra.main(version_base=None, config_path="configs", config_name='train_mtmhsac')
 def main(cfg: DictConfig) -> None:
     torch.manual_seed(cfg.seed)
 
     # Initialize environments, buffer, and agent
-    env = initialize_envs(cfg)
-    mtmhsac = initialize_agent(cfg)
-    buffer = initialize_buffer(cfg)
-    run = initialize_wandb(cfg)
+    env: SubprocVecEnv = initialize_envs(cfg, logger)
+    mtmhsac: MTMHSAC = initialize_agent(cfg, logger)
+    buffer: MTReplayBuffer = initialize_buffer(cfg, logger)
+    exp_strategy = initialize_exploration_strategy(cfg, logger, mtmhsac)
+    run = initialize_wandb(cfg, logger)
 
     logger.info("Starting training")
     success_rate = np.zeros(env.num_envs)
     for epoch in range(1, cfg.training.num_epochs + 1):
-        # Train
-        train(cfg, epoch, success_rate, env, mtmhsac, buffer, run=run)
-
-        # Evaluate
-        evaluate(cfg, epoch, env, mtmhsac, run=run)
-
-        # Save checkpoint
+        train(cfg, logger, epoch, success_rate, env, mtmhsac, exp_strategy, buffer, run=run)
+        evaluate(cfg, logger, epoch, env, mtmhsac, run=run)
         if epoch % cfg.logging.ckpt_interval == 0:
-            ckpt_dir = os.path.join(cfg.logging.ckpt_base_dir, f"{run.name}-{run.id}" if run else "offline")
-            os.makedirs(ckpt_dir, exist_ok=True)
-            mtmhsac.save_ckpt(os.path.join(ckpt_dir, f"ckpt_epoch_{epoch}.pt"))
-            logger.info(f"Checkpoint saved at epoch {epoch}")
+            save_ckpt(cfg, logger, epoch, mtmhsac, run=run)
 
     # Cleanup
     logger.info("Training complete")

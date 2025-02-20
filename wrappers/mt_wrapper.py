@@ -2,6 +2,7 @@ from typing import List
 
 import gymnasium as gym
 import numpy as np
+from numpy.typing import NDArray
 from metaworld.envs.mujoco.sawyer_xyz import SawyerXYZEnv
 from metaworld.types import Task
 
@@ -33,7 +34,7 @@ class MTWrapper(gym.Wrapper):
         obs, info = self.env.reset(**kwargs)
         return obs, info
     
-    def step(self, act: np.ndarray):
+    def step(self, act: NDArray) -> tuple[NDArray, float, bool, bool, dict]:
         obs, rwd, ter, tru, info = self.env.step(act)
         info['next_observation'] = obs
         if self.sparse_reward:
@@ -44,3 +45,6 @@ class MTWrapper(gym.Wrapper):
             obs, _ = self.reset()
             
         return obs, rwd, ter, tru, info
+    
+    def close(self):
+        self.env.close()
