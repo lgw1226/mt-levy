@@ -53,41 +53,35 @@ class MTLevy(BaseExpStrategy):
     def __init__(self, agent: MTMHSAC, seed: Optional[int] = None, **kwargs: dict[str, Any]):
         super(MTLevy, self).__init__(agent, seed=seed)
         self.num_tasks: int = kwargs['num_tasks']
-        self.horizon: int = kwargs['horizon']
-        self.max_exp_dur: float = kwargs.get('max_exploration_duration', self.horizon * 0.2)
-        self.topn: int = kwargs.get('topn', 5)
-        self.alpha_offset: float = kwargs.get('alpha_lb', 1) - 1
+        self.topn: int = kwargs['top_n']
+        self.alpha_offset: float = kwargs['alpha_lower_bound'] - 1
 
-        self.is_exploring = np.zeros(self.num_tasks, dtype=np.bool_)
-        self.exp_idx = np.zeros(self.num_tasks, dtype=np.int32)
-        self.exp_cnt = np.zeros(self.num_tasks, dtype=np.float32)
-        self.exp_dur = np.zeros(self.num_tasks, dtype=np.float32)
+        self.is_exp = np.zeros(self.num_tasks, dtype=np.bool_)
+        self.idx = np.zeros(self.num_tasks, dtype=np.int32)
+        self.cnt = np.zeros(self.num_tasks, dtype=np.float32)
 
     def get_action(self, obs: NDArray, success_rate: NDArray) -> NDArray:
-        candidate_idx = list(np.argsort(success_rate)[-self.topn:])
+        topn: set[int] = set(np.argsort(success_rate)[-self.topn:])
+        high_success_idx = np.nonzero(success_rate > 0.8)
         alpha = self.alpha_offset + self.agent.obs_dim ** success_rate
 
         # sample indices for exploration
-        idx = []
+        sample_idx = []
         for i in range(self.num_tasks):
-            if i not in candidate_idx: candidate_idx.append(i)
-            if not self.is_exploring[i]:
-                step_size = self.np_random.pareto(alpha[i])
-                if step_size < 2:
-                    idx.append(i)
+            if not self.is_exp[i]:
+                self.cnt[i] = self.np_random.pareto(alpha[i])
+                if self.cnt[i] < 1:
+                    sample_idx.append(i)
                 else:
-                    self.is_exploring[i] = True
-                    self.exp_dur[i] = np.clip(step_size, 2, self.max_exp_dur)
-                    self.exp_idx[i] = self.np_random.choice(list(candidate_idx))
-                    idx.append(self.exp_idx[i])
+                    self.is_exp[i] = True
+                    self.idx[i] = self.np_random.choice(list(topn | {i}))
+                    sample_idx.append(self.idx[i])
             else:
-                idx.append(self.exp_idx[i])
-                self.exp_cnt[i] += 1
-                if self.exp_cnt[i] >= self.exp_dur[i]:
-                    self.is_exploring[i] = False
-                    self.exp_cnt[i] = 0
-            candidate_idx.pop()
+                sample_idx.append(self.idx[i])
+            self.cnt[i] -= 1
+            if self.cnt[i] < 0:
+                self.is_exp[i] = False
 
         # infer the actor
-        idx = np.array(idx)
-        return self.agent.get_action(obs, idx)
+        sample_idx = np.array(sample_idx)
+        return self.agent.get_action(obs, sample_idx)

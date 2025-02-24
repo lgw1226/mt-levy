@@ -144,7 +144,7 @@ class MTMHSAC:
         torch.save(ckpt_dict, path)
 
     def load_ckpt(self, path: str):
-        ckpt_dict = torch.load(path)
+        ckpt_dict = torch.load(path, map_location=self.device)
         self.actor.load_state_dict(ckpt_dict['actor'])
         self.actor_optim.load_state_dict(ckpt_dict['actor_optim'])
         self.critic.load_state_dict(ckpt_dict['critic'])

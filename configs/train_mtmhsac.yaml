@@ -1,3 +1,7 @@
+defaults:
+  - exploration_strategy: base
+  - _self_
+
 seed: 0
 gpu_index: 0
 
@@ -52,9 +56,9 @@ agent:
   actor:
     _target_: components.actor.MultiHeadActor
     hidden_dim: 400
-    num_trunk_layers: 3
+    num_trunk_layers: 2
     num_heads: ${environment.num_envs}
-    num_head_layers: 2
+    num_head_layers: 1
     log_std_max: 2
     log_std_min: -20
   actor_optimizer:
@@ -63,9 +67,9 @@ agent:
   critic:
     _target_: components.critic.MultiHeadCritic
     hidden_dim: 400
-    num_trunk_layers: 3
+    num_trunk_layers: 2
     num_heads: ${environment.num_envs}
-    num_head_layers: 2
+    num_head_layers: 1
     bound: ${environment.sparse}
   critic_optimizer:
     _target_: torch.optim.Adam
@@ -82,7 +86,3 @@ buffer:
     obs_dim: ${environment.obs_dim}
     act_dim: ${environment.act_dim}
     seed: ${seed}
-
-defaults:
-  - exploration_strategy: mtlevy
-  - _self_

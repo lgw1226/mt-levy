@@ -127,6 +127,7 @@ def evaluate(
         for i in range(num_envs):
             if done_and_active[i] and success[i]:  # Only process finished episodes
                 success_cnt[i] += 1
+        success[done] = False
 
         # Mark environments as **finished** if they have completed `num_episodes`
         active_envs = ep_count < num_episodes  # ✅ Mark finished environments as False
