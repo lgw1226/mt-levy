@@ -9,7 +9,7 @@ from wandb.sdk.wandb_run import Run
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
-from mt_levy.wrappers import SparseReward
+from mt_levy.utils.wrappers import SparseReward
 from mt_levy.exploration_strategies import BaseExpStrategy
 
 

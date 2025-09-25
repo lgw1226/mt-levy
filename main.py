@@ -62,9 +62,14 @@ def train(
         done = ter | tru
 
         # Update training success ratio when episode is done
-        step_success = info.get("success")
-        if step_success is None:
+        if np.all(done):
             step_success = info["final_info"]["success"] == 1.0
+        elif np.any(done):
+            step_success = np.zeros(env.num_envs, dtype=np.bool_)
+            step_success[done] = info["final_info"]["success"][done] == 1.0
+            step_success[~done] = info["success"][~done] == 1.0
+        else:
+            step_success = info["success"] == 1.0
         success = np.logical_or(success, step_success)
         success_rate[done] = (
             success_rate[done] * (1 - cfg.training.sr_decay)
@@ -74,11 +79,10 @@ def train(
         train_log["train/success-rate"] = success_rate.mean()
 
         # Store transitions (nobs could have been reset)
-        final_obs = info.get("final_obs", None)
-        is_reset = final_obs is not None
-        if is_reset:
-            nobs[is_reset] = info["next_observation"][is_reset]
-        buffer.append(obs, act, rwd, nobs, ter, np.arange(env.num_envs))
+        actual_nobs = nobs.copy()
+        if np.any(done):
+            actual_nobs[done] = np.stack(info["final_obs"][done])
+        buffer.append(obs, act, rwd, actual_nobs, ter, np.arange(env.num_envs))
         obs = nobs
 
         # Training step
@@ -127,8 +131,17 @@ def evaluate(
 
         # Step through the environment
         obs, rwd, ter, tru, info = env.step(act)
-        success = np.logical_or(success, info["success"] == 1.0)
         done = ter | tru  # Compute done masks
+
+        if np.all(done):
+            step_success = info["final_info"]["success"] == 1.0
+        elif np.any(done):
+            step_success = np.zeros(env.num_envs, dtype=np.bool_)
+            step_success[done] = info["final_info"]["success"][done] == 1.0
+            step_success[~done] = info["success"][~done] == 1.0
+        else:
+            step_success = info["success"] == 1.0
+        success = np.logical_or(success, step_success)
 
         # Accumulate rewards **only for active environments**
         total_rwd[active_envs] += rwd[active_envs]

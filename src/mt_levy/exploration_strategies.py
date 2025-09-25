@@ -62,7 +62,6 @@ class MTLevy(BaseExpStrategy):
 
     def get_action(self, obs: NDArray, success_rate: NDArray) -> NDArray:
         topn: set[int] = set(np.argsort(success_rate)[-self.topn :])
-        high_success_idx = np.nonzero(success_rate > 0.8)
         alpha = self.alpha_offset + self.agent.obs_dim**success_rate
 
         # sample indices for exploration

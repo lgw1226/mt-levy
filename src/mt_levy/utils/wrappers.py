@@ -1,5 +1,4 @@
 from gymnasium.vector import VectorEnv, VectorWrapper
-from metaworld.wrappers import AutoTerminateOnSuccessWrapper
 
 
 class SparseReward(VectorWrapper):
