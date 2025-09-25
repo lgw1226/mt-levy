@@ -82,11 +82,11 @@ Evaluation is performed automatically at the end of each training epoch.
 
 You can experiment with other exploration strategies:
 
--   **Standard SAC (no special exploration):**
+-   **Standard MTMHSAC:**
     ```bash
     uv run python main.py exploration_strategy=base
     ```
--   **Quality-Metric-based Planning (QMP):**
+-   **Q-switch Mixture of Policies (QMP):**
     ```bash
     uv run python main.py exploration_strategy=qmp
     ```
