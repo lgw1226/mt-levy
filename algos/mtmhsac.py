@@ -20,19 +20,19 @@ from components.utils import soft_update_params
 class MTMHSAC:
 
     def __init__(
-            self,
-            num_envs: int,
-            obs_dim: int,
-            act_dim: int,
-            actor_cfg: DictConfig,
-            critic_cfg: DictConfig,
-            actor_optim_cfg: DictConfig,
-            critic_optim_cfg: DictConfig,
-            temp_optim_cfg: DictConfig,
-            init_temp: float = 0.1,
-            gamma: float = 0.99,
-            tau: float = 0.005,
-            gpu_index: Optional[int] = None,
+        self,
+        num_envs: int,
+        obs_dim: int,
+        act_dim: int,
+        actor_cfg: DictConfig,
+        critic_cfg: DictConfig,
+        actor_optim_cfg: DictConfig,
+        critic_optim_cfg: DictConfig,
+        temp_optim_cfg: DictConfig,
+        init_temp: float = 0.1,
+        gamma: float = 0.99,
+        tau: float = 0.005,
+        gpu_index: Optional[int] = None,
     ):
         self.num_envs = num_envs
         self.obs_dim = obs_dim
@@ -41,29 +41,51 @@ class MTMHSAC:
 
         self.gamma = gamma
         self.tau = tau
-        self.device = torch.device('cpu') if gpu_index is None else torch.device(f'cuda:{gpu_index}')
+        self.device = (
+            torch.device("cpu")
+            if gpu_index is None
+            else torch.device(f"cuda:{gpu_index}")
+        )
 
-        self.actor: MultiHeadActor = instantiate(actor_cfg, obs_dim, act_dim).to(self.device)
-        self.critic: MultiHeadCritic = instantiate(critic_cfg, obs_dim, act_dim).to(self.device)
-        self.critic_target: MultiHeadCritic = deepcopy(self.critic).requires_grad_(False).to(self.device)
-        self.log_temp = Parameter(torch.tensor(self.num_envs * [log(init_temp)]).to(self.device))
-        self._components: dict[Module, Parameter] = {
-            'actor': self.actor,
-            'critic': self.critic,
-            'critic_target': self.critic_target,
-            'log_temp': self.log_temp,
+        self.actor: MultiHeadActor = instantiate(actor_cfg, obs_dim, act_dim).to(
+            self.device
+        )
+        self.critic: MultiHeadCritic = instantiate(critic_cfg, obs_dim, act_dim).to(
+            self.device
+        )
+        self.critic_target: MultiHeadCritic = (
+            deepcopy(self.critic).requires_grad_(False).to(self.device)
+        )
+        self.log_temp = Parameter(
+            torch.tensor(self.num_envs * [log(init_temp)]).to(self.device)
+        )
+        self._components: dict[str, Module | Parameter] = {
+            "actor": self.actor,
+            "critic": self.critic,
+            "critic_target": self.critic_target,
+            "log_temp": self.log_temp,
         }
 
-        self.actor_optim: Optimizer = instantiate(actor_optim_cfg, params=self.actor.parameters())
-        self.critic_optim: Optimizer = instantiate(critic_optim_cfg, params=self.critic.parameters())
+        self.actor_optim: Optimizer = instantiate(
+            actor_optim_cfg, params=self.actor.parameters()
+        )
+        self.critic_optim: Optimizer = instantiate(
+            critic_optim_cfg, params=self.critic.parameters()
+        )
         self.temp_optim: Optimizer = instantiate(temp_optim_cfg, params=[self.log_temp])
 
     @torch.no_grad()
-    def get_action(self, obs: NDArray, idx: Optional[Union[NDArray, int]] = None, sample: bool = True) -> NDArray:
-        if idx is None: idx = torch.arange(self.num_envs, dtype=torch.int, device=self.device)
+    def get_action(
+        self,
+        obs: NDArray,
+        idx: Optional[Union[NDArray, int]] = None,
+        sample: bool = True,
+    ) -> NDArray:
+        if idx is None:
+            idx = np.arange(self.num_envs)
         act, logp = self.actor(self._tensor(obs), self._tensor(idx), sample=sample)
         return self._ndarray(act)
-    
+
     def update(self, batch: tuple[NDArray, ...]) -> dict[str, float]:
         obs, act, rwd, nobs, done, idx = map(self._tensor, batch)
         _act, _logp = self.actor(obs, idx)
@@ -74,10 +96,10 @@ class MTMHSAC:
         self._update_targets()
 
         return {
-            'train/loss/actor': actor_loss.item(),
-            'train/loss/critic': critic_loss.item(),
-            'train/loss/temperature': temp_loss.item(),
-            'train/temperature': temp.mean().item(),
+            "train/loss/actor": actor_loss.item(),
+            "train/loss/critic": critic_loss.item(),
+            "train/loss/temperature": temp_loss.item(),
+            "train/temperature": temp.mean().item(),
         }
 
     def _update_temperature(self, _logp: Tensor, idx: Tensor) -> tuple[Tensor, Tensor]:
@@ -90,14 +112,14 @@ class MTMHSAC:
         return temp_loss, temp.detach()
 
     def _update_critics(
-            self,
-            obs: Tensor,
-            act: Tensor,
-            rwd: Tensor,
-            nobs: Tensor,
-            done: Tensor,
-            idx: Tensor,
-            temp: Tensor
+        self,
+        obs: Tensor,
+        act: Tensor,
+        rwd: Tensor,
+        nobs: Tensor,
+        done: Tensor,
+        idx: Tensor,
+        temp: Tensor,
     ) -> Tensor:
         with torch.no_grad():
             nact, nlogp = self.actor(nobs, idx)
@@ -112,12 +134,7 @@ class MTMHSAC:
         return critic_loss
 
     def _update_actor(
-            self,
-            obs: Tensor,
-            _act: Tensor,
-            _logp:Tensor,
-            idx: Tensor,
-            temp: Tensor
+        self, obs: Tensor, _act: Tensor, _logp: Tensor, idx: Tensor, temp: Tensor
     ) -> Tensor:
         _q1, _q2 = self.critic(obs, _act, idx)
         _q = torch.minimum(_q1, _q2) - temp * _logp
@@ -133,28 +150,30 @@ class MTMHSAC:
 
     def save_ckpt(self, path: str):
         ckpt_dict = {
-            'actor': self.actor.state_dict(),
-            'actor_optim': self.actor_optim.state_dict(),
-            'critic': self.critic.state_dict(),
-            'critic_target': self.critic_target.state_dict(),
-            'critic_optim': self.critic_optim.state_dict(),
-            'log_temp': self.log_temp.data,
-            'temp_optim': self.temp_optim.state_dict(),
+            "actor": self.actor.state_dict(),
+            "actor_optim": self.actor_optim.state_dict(),
+            "critic": self.critic.state_dict(),
+            "critic_target": self.critic_target.state_dict(),
+            "critic_optim": self.critic_optim.state_dict(),
+            "log_temp": self.log_temp.data,
+            "temp_optim": self.temp_optim.state_dict(),
         }
         torch.save(ckpt_dict, path)
 
     def load_ckpt(self, path: str):
         ckpt_dict = torch.load(path, map_location=self.device)
-        self.actor.load_state_dict(ckpt_dict['actor'])
-        self.actor_optim.load_state_dict(ckpt_dict['actor_optim'])
-        self.critic.load_state_dict(ckpt_dict['critic'])
-        self.critic_target.load_state_dict(ckpt_dict['critic_target'])
-        self.critic_optim.load_state_dict(ckpt_dict['critic_optim'])
-        self.log_temp.data = ckpt_dict['log_temp']  # nn.Parameter does not have load_state_dict method
-        self.temp_optim.load_state_dict(ckpt_dict['temp_optim'])
+        self.actor.load_state_dict(ckpt_dict["actor"])
+        self.actor_optim.load_state_dict(ckpt_dict["actor_optim"])
+        self.critic.load_state_dict(ckpt_dict["critic"])
+        self.critic_target.load_state_dict(ckpt_dict["critic_target"])
+        self.critic_optim.load_state_dict(ckpt_dict["critic_optim"])
+        self.log_temp.data = ckpt_dict[
+            "log_temp"
+        ]  # nn.Parameter does not have load_state_dict method
+        self.temp_optim.load_state_dict(ckpt_dict["temp_optim"])
 
     def _tensor(self, data: NDArray) -> Tensor:
         return torch.as_tensor(data, dtype=torch.float32, device=self.device)
-    
+
     def _ndarray(self, data: Tensor) -> NDArray:
         return data.detach().cpu().numpy()
