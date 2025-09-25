@@ -2,7 +2,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn import Module
 
-from components.mlp import Linear
+from mt_levy.components.mlp import Linear
 
 
 def weight_init_linear(m: nn.Linear):
@@ -37,8 +37,6 @@ def weight_init(m: Module):
     """Custom weight init for Conv2D and Linear layers."""
     if isinstance(m, nn.Linear):
         weight_init_linear(m)
-    elif isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
-        weight_init_conv(m)
     elif isinstance(m, Linear):
         weight_init_moe_layer(m)
 

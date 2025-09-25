@@ -19,12 +19,12 @@ logging:
   use_wandb: True
   log_interval: 100
   ckpt_interval: 20
-  ckpt_base_dir: ../sdc/ckpts
+  ckpt_base_dir: ???
 
 wandb:
-  project: iros25
-  name: MTMHSAC
-  mode: online
+  project: ???
+  name: ???
+  mode: ???
 
 environment:
   benchmark: MT10
@@ -40,7 +40,7 @@ agent:
   gamma: 0.99
   tau: 0.005
   builder:
-    _target_: algos.mtmhsac.MTMHSAC
+    _target_: mt_levy.algos.mtmhsac.MTMHSAC
     num_envs: ${environment.num_envs}
     obs_dim: ${environment.obs_dim}
     act_dim: ${environment.act_dim}
@@ -54,7 +54,7 @@ agent:
     tau: ${agent.tau}
     gpu_index: ${gpu_index}
   actor:
-    _target_: components.actor.MultiHeadActor
+    _target_: mt_levy.components.actor.MultiHeadActor
     hidden_dim: 400
     num_trunk_layers: 2
     num_heads: ${environment.num_envs}
@@ -65,7 +65,7 @@ agent:
     _target_: torch.optim.Adam
     lr: 0.0003
   critic:
-    _target_: components.critic.MultiHeadCritic
+    _target_: mt_levy.components.critic.MultiHeadCritic
     hidden_dim: 400
     num_trunk_layers: 2
     num_heads: ${environment.num_envs}
@@ -81,7 +81,7 @@ agent:
 buffer:
   type: mt_replay_buffer
   builder:
-    _target_: buffers.replay_buffer.MTReplayBuffer
+    _target_: mt_levy.buffers.MTReplayBuffer
     capacity: 1000000
     obs_dim: ${environment.obs_dim}
     act_dim: ${environment.act_dim}

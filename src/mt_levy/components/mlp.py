@@ -4,14 +4,6 @@ import torch.nn as nn
 from torch import Tensor
 
 
-__all__ = [
-    'FeedForward',
-    'MLP',
-    'create_mlp_layers',
-    'get_arch'
-]
-
-
 class Linear(nn.Module):
     def __init__(
         self, num_experts: int, in_features: int, out_features: int, bias: bool = True
@@ -110,7 +102,7 @@ class MLP(nn.Module):
 
     def forward(self, x):
         return self.layers(x)
-    
+
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         return super(MLP, self).__call__(x)
 
@@ -122,6 +114,7 @@ def create_mlp_layers(architecture: List[int]) -> nn.ModuleList:
         layers.append(nn.ReLU())
     layers.append(nn.Linear(architecture[-2], architecture[-1]))
     return layers
+
 
 def get_arch(in_dim: int, out_dim: int, hidden_dim: int, num_layers: int) -> List[int]:
     """Create a list of layer dimensions for a multi-layer perceptron."""

@@ -6,20 +6,20 @@ from torch import Tensor
 from torch.distributions import Normal
 from omegaconf import DictConfig
 
-from components import MLP, FeedForward, get_arch
-from components.utils import weight_init
+from mt_levy.components.mlp import MLP, FeedForward, get_arch
+from mt_levy.components.utils import weight_init
 
 
 class Actor(nn.Module):
     def __init__(
-            self,
-            obs_dim: int,
-            act_dim: int,
-            hidden_dim: int,
-            num_layers: int,
-            log_std_max: float,
-            log_std_min: float,
-            **kwargs: dict[str, Any],
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_dim: int,
+        num_layers: int,
+        log_std_max: float,
+        log_std_min: float,
+        **kwargs: dict[str, Any],
     ):
         super(Actor, self).__init__()
         self.obs_dim = obs_dim
@@ -57,26 +57,28 @@ class Actor(nn.Module):
         else:
             act = mean
         logp = torch.sum(dist.log_prob(act), dim=-1)
-        
+
         squashed_act, squashed_logp = _squash(act, logp)
         return squashed_act.squeeze(0), squashed_logp.squeeze(0)
-    
+
     def _make_model(self) -> nn.Module:
-        return MLP(get_arch(self.in_dim, self.out_dim, self.hidden_dim, self.num_layers))
+        return MLP(
+            get_arch(self.in_dim, self.out_dim, self.hidden_dim, self.num_layers)
+        )
 
 
 class MultiHeadActor(nn.Module):
     def __init__(
-            self,
-            obs_dim: int,
-            act_dim: int,
-            hidden_dim: int,
-            num_trunk_layers: int,
-            num_heads: int,
-            num_head_layers: int,
-            log_std_max: float,
-            log_std_min: float,
-            **kwargs: dict[str, Any],
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_dim: int,
+        num_trunk_layers: int,
+        num_heads: int,
+        num_head_layers: int,
+        log_std_max: float,
+        log_std_min: float,
+        **kwargs: dict[str, Any],
     ):
         super(MultiHeadActor, self).__init__()
         self.obs_dim = obs_dim
@@ -96,7 +98,9 @@ class MultiHeadActor(nn.Module):
         self.apply(weight_init)
 
     # type hinting
-    def __call__(self, obs: Tensor, idx: Tensor, sample: bool = True) -> tuple[Tensor, Tensor]:
+    def __call__(
+        self, obs: Tensor, idx: Tensor, sample: bool = True
+    ) -> tuple[Tensor, Tensor]:
         return self.forward(obs, idx, sample)
 
     def forward(
@@ -109,7 +113,7 @@ class MultiHeadActor(nn.Module):
             obs = obs.unsqueeze(0)
             idx = idx.unsqueeze(0)
         idx = idx.to(torch.int)
-        
+
         mask = self._get_mask(idx)
         out = torch.sum(self.model(obs) * mask, dim=0)
         mean, log_std = out.chunk(2, dim=-1)
@@ -121,20 +125,30 @@ class MultiHeadActor(nn.Module):
         else:
             act = mean
         logp = torch.sum(dist.log_prob(act), dim=-1)
-        
+
         squashed_act, squashed_logp = _squash(act, logp)
         return squashed_act.squeeze(0), squashed_logp.squeeze(0)
-    
+
     def _get_mask(self, task_idx: Tensor) -> Tensor:
         task_idx_to_mask = self.task_idx_to_mask.to(task_idx.device)
         mask = task_idx_to_mask[task_idx]
         if mask.ndim == 1:
             mask = mask.unsqueeze(0)
         return mask.t().unsqueeze(2).to(task_idx.device)
-    
+
     def _make_model(self) -> nn.Module:
-        trunk = MLP(get_arch(self.in_dim, self.hidden_dim, self.hidden_dim, self.num_trunk_layers))
-        heads = FeedForward(self.num_heads, self.hidden_dim, self.out_dim, self.num_head_layers, self.hidden_dim)
+        trunk = MLP(
+            get_arch(
+                self.in_dim, self.hidden_dim, self.hidden_dim, self.num_trunk_layers
+            )
+        )
+        heads = FeedForward(
+            self.num_heads,
+            self.hidden_dim,
+            self.out_dim,
+            self.num_head_layers,
+            self.hidden_dim,
+        )
         model = nn.Sequential(trunk, nn.ReLU(), heads)
         return model
 
@@ -145,7 +159,8 @@ def _get_std(log_std: Tensor, log_std_min: float, log_std_max: float):
     log_std = log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std + 1)
     return log_std.exp()
 
+
 def _squash(act: Tensor, logp: Tensor):
     squashed_act = torch.tanh(act)
-    squashed_logp = logp - torch.log(1 - squashed_act ** 2 + 1e-6).sum(-1)
+    squashed_logp = logp - torch.log(1 - squashed_act**2 + 1e-6).sum(-1)
     return squashed_act, squashed_logp
