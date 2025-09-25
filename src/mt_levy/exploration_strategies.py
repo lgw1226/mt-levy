@@ -1,4 +1,5 @@
 from typing import Any, Optional
+from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
@@ -47,40 +48,49 @@ class QMP(BaseExpStrategy):
 
 
 class MTLevy(BaseExpStrategy):
-
     def __init__(
-        self, agent: MTMHSAC, seed: Optional[int] = None, **kwargs: dict[str, Any]
+        self,
+        agent: MTMHSAC,
+        seed: Optional[int] = None,
+        **kwargs: dict[str, Any],
     ):
-        super(MTLevy, self).__init__(agent, seed=seed)
+        super().__init__(agent, seed=seed)
         self.num_tasks: int = kwargs["num_tasks"]
-        self.topn: int = kwargs["top_n"]
-        self.alpha_offset: float = kwargs["alpha_lower_bound"] - 1
+        self.horizon: int = kwargs["horizon"]
+        self.alpha_bar: float = kwargs["alpha_offset"]
+        self.rho_bar: float = kwargs["sr_threshold"]
+        self.num_neighbors: int = kwargs["num_neighbors"]
 
-        self.is_exp = np.zeros(self.num_tasks, dtype=np.bool_)
-        self.idx = np.zeros(self.num_tasks, dtype=np.int32)
+        metadata_path = Path(__file__).resolve().parent / "mt10_metadata.npy"
+        mt10_metadata = np.load(metadata_path, allow_pickle=True)
+        self.sequence_matrix = mt10_metadata[:, : self.num_neighbors]
         self.cnt = np.zeros(self.num_tasks, dtype=np.float32)
+        self.act = self.np_random.uniform(
+            -1, 1, (self.num_tasks, self.agent.act_dim)
+        ).astype(np.float32)
 
-    def get_action(self, obs: NDArray, success_rate: NDArray) -> NDArray:
-        topn: set[int] = set(np.argsort(success_rate)[-self.topn :])
-        alpha = self.alpha_offset + self.agent.obs_dim**success_rate
+    def get_action(self, obs: NDArray, success_ratio: NDArray) -> NDArray:
+        high_success_idx = np.nonzero(success_ratio > self.rho_bar)[0]
+        candidates = set(high_success_idx)
+        alpha = self.alpha_bar + 1 / self.rho_bar ** (success_ratio / self.rho_bar)
 
-        # sample indices for exploration
-        sample_idx = []
+        sample_idx = np.arange(self.num_tasks)
+        sample = np.ones(self.num_tasks, dtype=np.bool_)
         for i in range(self.num_tasks):
-            if not self.is_exp[i]:
-                self.cnt[i] = self.np_random.pareto(alpha[i])
-                if self.cnt[i] < 1:
-                    sample_idx.append(i)
-                else:
-                    self.is_exp[i] = True
-                    self.idx[i] = self.np_random.choice(list(topn | {i}))
-                    sample_idx.append(self.idx[i])
+            if success_ratio[i] >= self.rho_bar:
+                continue
+            if self.cnt[i] <= 1:
+                self.cnt[i] = np.clip(
+                    self.np_random.pareto(alpha[i]), 0, int(self.horizon * 0.1)
+                )
+                if self.cnt[i] > 1:
+                    candidates_list = list(
+                        (candidates & set(self.sequence_matrix[i])) | {i}
+                    )
+                    sample_idx[i] = self.np_random.choice(candidates_list)
             else:
-                sample_idx.append(self.idx[i])
-            self.cnt[i] -= 1
-            if self.cnt[i] < 0:
-                self.is_exp[i] = False
+                sample[i] = False
 
-        # infer the actor
-        sample_idx = np.array(sample_idx)
-        return self.agent.get_action(obs, sample_idx)
+        self.cnt -= 1
+        self.act[sample] = self.agent.get_action(obs, sample_idx)[sample]
+        return self.act

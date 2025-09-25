@@ -9,7 +9,7 @@ class ReplayBuffer:
         self, capacity: int, obs_dim: int, act_dim: int, seed: Optional[int] = None
     ):
         self.capacity = capacity
-        self.index = 0
+        self.idx = 0
         self.full = False
         self.np_random = np.random.default_rng(seed=seed)
 
@@ -27,18 +27,17 @@ class ReplayBuffer:
         nobs: NDArray,
         done: bool,
     ):
-        i = (self.index + 1) % self.capacity
-        self.obs[i] = obs
-        self.act[i] = act
-        self.rwd[i] = rwd
-        self.nobs[i] = nobs
-        self.done[i] = done
+        self.obs[self.idx] = obs
+        self.act[self.idx] = act
+        self.rwd[self.idx] = rwd
+        self.nobs[self.idx] = nobs
+        self.done[self.idx] = done
 
-        self.index = i
-        self.full = self.full or self.index == 0
+        self.idx = (self.idx + 1) % self.capacity
+        self.full = self.full or self.idx == 0
 
     def sample(self, batch_size: int) -> tuple[NDArray, ...]:
-        max_size = self.capacity if self.full else self.index
+        max_size = self.capacity if self.full else self.idx
         idxs = self.np_random.choice(max_size, batch_size, replace=False)
         return (
             self.obs[idxs],

@@ -72,8 +72,8 @@ def train(
             step_success = info["success"] == 1.0
         success = np.logical_or(success, step_success)
         success_rate[done] = (
-            success_rate[done] * (1 - cfg.training.sr_decay)
-            + success[done] * cfg.training.sr_decay
+            success_rate[done] * (1 - cfg.training.sr_update_rate)
+            + success[done] * cfg.training.sr_update_rate
         )
         success[done] = False
         train_log["train/success-rate"] = success_rate.mean()
