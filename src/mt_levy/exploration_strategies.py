@@ -69,15 +69,16 @@ class MTLevy(BaseExpStrategy):
             -1, 1, (self.num_tasks, self.agent.act_dim)
         ).astype(np.float32)
 
-    def get_action(self, obs: NDArray, success_ratio: NDArray) -> NDArray:
-        high_success_idx = np.nonzero(success_ratio > self.rho_bar)[0]
+    def get_action(self, obs: NDArray, **kwargs) -> NDArray:
+        success_rate = kwargs["success_rate"]
+        high_success_idx = np.nonzero(success_rate > self.rho_bar)[0]
         candidates = set(high_success_idx)
-        alpha = self.alpha_bar + 1 / self.rho_bar ** (success_ratio / self.rho_bar)
+        alpha = self.alpha_bar + 1 / self.rho_bar ** (success_rate / self.rho_bar)
 
         sample_idx = np.arange(self.num_tasks)
         sample = np.ones(self.num_tasks, dtype=np.bool_)
         for i in range(self.num_tasks):
-            if success_ratio[i] >= self.rho_bar:
+            if success_rate[i] >= self.rho_bar:
                 continue
             if self.cnt[i] <= 1:
                 self.cnt[i] = np.clip(
