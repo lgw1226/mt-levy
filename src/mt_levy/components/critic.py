@@ -4,19 +4,19 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from components import get_arch, MLP, FeedForward
-from components.utils import weight_init
+from mt_levy.components.mlp import get_arch, MLP, FeedForward
+from mt_levy.components.utils import weight_init
 
 
 class Critic(nn.Module):
 
     def __init__(
-            self,
-            obs_dim: int,
-            act_dim: int,
-            hidden_dim: int,
-            num_layers: int,
-            **kwargs: dict[str, Any],
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_dim: int,
+        num_layers: int,
+        **kwargs: dict[str, Any],
     ):
         super(Critic, self).__init__()
         self.obs_dim = obs_dim
@@ -46,8 +46,10 @@ class Critic(nn.Module):
         return q1.squeeze(0, -1), q2.squeeze(0, -1)
 
     def _make_q(self) -> nn.Module:
-        model = MLP(get_arch(self.in_dim, self.out_dim, self.hidden_dim, self.num_layers))
-        if self.kwargs.get('bound', False):
+        model = MLP(
+            get_arch(self.in_dim, self.out_dim, self.hidden_dim, self.num_layers)
+        )
+        if self.kwargs.get("bound", False):
             return nn.Sequential(model, nn.Sigmoid())
         else:
             return model
@@ -56,14 +58,14 @@ class Critic(nn.Module):
 class MultiHeadCritic(nn.Module):
 
     def __init__(
-            self,
-            obs_dim: int,
-            act_dim: int,
-            hidden_dim: int,
-            num_trunk_layers: int,
-            num_heads: int,
-            num_head_layers: int,
-            **kwargs: dict[str, Any],
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_dim: int,
+        num_trunk_layers: int,
+        num_heads: int,
+        num_head_layers: int,
+        **kwargs: dict[str, Any],
     ):
         super(MultiHeadCritic, self).__init__()
         self.obs_dim = obs_dim
@@ -91,13 +93,13 @@ class MultiHeadCritic(nn.Module):
             act = act.unsqueeze(0)
             idx = idx.unsqueeze(0)
         idx = idx.to(torch.int)
-        
+
         mask = self._get_mask(idx)
         x = torch.cat([obs, act], dim=-1)
         q1 = torch.sum(self.q1(x) * mask, dim=0)
         q2 = torch.sum(self.q2(x) * mask, dim=0)
         return q1.squeeze(0, -1), q2.squeeze(0, -1)
-    
+
     def _get_mask(self, task_idx: Tensor) -> Tensor:
         task_idx_to_mask = self.task_idx_to_mask.to(task_idx.device)
         mask = task_idx_to_mask[task_idx]
@@ -106,10 +108,18 @@ class MultiHeadCritic(nn.Module):
         return mask.t().unsqueeze(2).to(task_idx.device)
 
     def _make_q(self) -> nn.Module:
-        trunk_arch = get_arch(self.in_dim, self.hidden_dim, self.hidden_dim, self.num_trunk_layers)
+        trunk_arch = get_arch(
+            self.in_dim, self.hidden_dim, self.hidden_dim, self.num_trunk_layers
+        )
         trunk = MLP(trunk_arch)
-        heads = FeedForward(self.num_heads, self.hidden_dim, self.out_dim, self.num_head_layers, self.hidden_dim)
-        if self.kwargs.get('bound', False):
+        heads = FeedForward(
+            self.num_heads,
+            self.hidden_dim,
+            self.out_dim,
+            self.num_head_layers,
+            self.hidden_dim,
+        )
+        if self.kwargs.get("bound", False):
             return nn.Sequential(trunk, nn.ReLU(), heads, nn.Sigmoid())
         else:
             return nn.Sequential(trunk, nn.ReLU(), heads)

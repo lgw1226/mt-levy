@@ -1,0 +1,6 @@
+gymnasium>=1.2.1
+hydra-core>=1.3.2
+metaworld>=3.0.0
+torch>=2.8.0
+tqdm>=4.67.1
+wandb>=0.22.0

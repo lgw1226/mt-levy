@@ -12,7 +12,7 @@ import hydra
 from omegaconf import DictConfig
 from tqdm import trange
 
-from algos import MTMHSAC
+from mt_levy.algos import MTMHSAC
 from buffers import MTReplayBuffer
 from utils import (
     initialize_envs,
@@ -27,8 +27,9 @@ from envs import SubprocVecEnv
 
 
 # Setup logging
-os.makedirs('logs', exist_ok=True)
+os.makedirs("logs", exist_ok=True)
 logger = logging.getLogger(__name__)
+
 
 def train(
     cfg: DictConfig,
@@ -45,8 +46,12 @@ def train(
 
     obs, _ = env.reset()
     success = np.zeros(env.num_envs, dtype=np.bool_)
-    for step in trange(1, cfg.training.train_steps + 1, desc=f"Epoch {epoch}", unit="step"):
-        train_log = {"step": (epoch - 1) * cfg.training.train_steps + step}  # total steps
+    for step in trange(
+        1, cfg.training.train_steps + 1, desc=f"Epoch {epoch}", unit="step"
+    ):
+        train_log = {
+            "step": (epoch - 1) * cfg.training.train_steps + step
+        }  # total steps
 
         # Select action: exploration during initial steps
         if epoch == 1 and step <= cfg.training.init_steps:
@@ -57,10 +62,13 @@ def train(
         done = ter | tru
 
         # Update training success ratio when episode is done
-        success = np.logical_or(success, np.array([info[i]["success"] for i in range(env.num_envs)]))
-        success_rate[done] \
-            = success_rate[done] * (1 - cfg.training.sr_decay) \
+        success = np.logical_or(
+            success, np.array([info[i]["success"] for i in range(env.num_envs)])
+        )
+        success_rate[done] = (
+            success_rate[done] * (1 - cfg.training.sr_decay)
             + success[done] * cfg.training.sr_decay
+        )
         success[done] = False
         train_log["train/success-rate"] = success_rate.mean()
 
@@ -81,6 +89,7 @@ def train(
 
     end = time()
     logger.info(f"Epoch {epoch} complete | Elapsed Time: {end - start:.2f} (seconds)")
+
 
 def evaluate(
     cfg: DictConfig,
@@ -114,7 +123,9 @@ def evaluate(
 
         # Step through the environment
         obs, rwd, ter, tru, info = env.step(act)
-        success = np.logical_or(success, np.array([info[i]["success"] for i in range(num_envs)]))
+        success = np.logical_or(
+            success, np.array([info[i]["success"] for i in range(num_envs)])
+        )
         done = ter | tru  # Compute done masks
 
         # Accumulate rewards **only for active environments**
@@ -139,19 +150,22 @@ def evaluate(
 
     # Log evaluation metrics
     if run:
-        run.log({
-            "eval/mean_return": mean_return.mean(),
-            "eval/success_rate": success_rate.mean(),
-            "eval/ep_len": ep_len.mean(),
-            "epoch": epoch,
-        })
+        run.log(
+            {
+                "eval/mean_return": mean_return.mean(),
+                "eval/success_rate": success_rate.mean(),
+                "eval/ep_len": ep_len.mean(),
+                "epoch": epoch,
+            }
+        )
     logger.info(
         f"Return: {mean_return.mean():.2f} | "
         f"Success Rate: {success_rate.mean():.2f} | "
         f"Episode Length: {ep_len.mean():.2f}"
     )
 
-@hydra.main(version_base=None, config_path="configs", config_name='train_mtmhsac')
+
+@hydra.main(version_base=None, config_path="configs", config_name="train_mtmhsac")
 def main(cfg: DictConfig) -> None:
     torch.manual_seed(cfg.seed)
 
@@ -165,7 +179,17 @@ def main(cfg: DictConfig) -> None:
     logger.info("Starting training")
     success_rate = np.zeros(env.num_envs)
     for epoch in range(1, cfg.training.num_epochs + 1):
-        train(cfg, logger, epoch, success_rate, env, mtmhsac, exp_strategy, buffer, run=run)
+        train(
+            cfg,
+            logger,
+            epoch,
+            success_rate,
+            env,
+            mtmhsac,
+            exp_strategy,
+            buffer,
+            run=run,
+        )
         evaluate(cfg, logger, epoch, env, mtmhsac, run=run)
         if epoch % cfg.logging.ckpt_interval == 0:
             save_ckpt(cfg, logger, epoch, mtmhsac, run=run)
