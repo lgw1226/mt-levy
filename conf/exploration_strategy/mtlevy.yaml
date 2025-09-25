@@ -1,7 +1,7 @@
 top_n: 5
 alpha_lower_bound: 3
 builder:
-  _target_: exp_strategy.MTLevy
+  _target_: mt_levy.exploration_strategies.MTLevy
   num_tasks: ${environment.num_envs}
   top_n: ${exploration_strategy.top_n}
   alpha_lower_bound: ${exploration_strategy.alpha_lower_bound}

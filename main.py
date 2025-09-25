@@ -4,7 +4,7 @@ from logging import Logger
 from time import time
 from typing import Optional
 
-from gymnasium.vector import AsyncVectorEnv
+from gymnasium.vector import VectorEnv
 import torch
 import numpy as np
 from numpy.typing import NDArray
@@ -15,15 +15,15 @@ from tqdm import trange
 
 from mt_levy.mtmhsac import MTMHSAC
 from mt_levy.buffers import MTReplayBuffer
-from mt_levy.utils import (
+from mt_levy.utils.initialize import (
     initialize_envs,
     initialize_agent,
     initialize_buffer,
     initialize_exploration_strategy,
     initialize_wandb,
-    save_ckpt,
 )
-from exp_strategy import BaseExpStrategy
+from mt_levy.utils.save_load import save_ckpt
+from mt_levy.exploration_strategies import BaseExpStrategy
 
 
 # Setup logging
@@ -36,7 +36,7 @@ def train(
     logger: Logger,
     epoch: int,
     success_rate: NDArray,
-    env: AsyncVectorEnv,
+    env: VectorEnv,
     mtmhsac: MTMHSAC,
     exp_strategy: BaseExpStrategy,
     buffer: MTReplayBuffer,
@@ -62,9 +62,10 @@ def train(
         done = ter | tru
 
         # Update training success ratio when episode is done
-        success = np.logical_or(
-            success, np.array([info[i]["success"] for i in range(env.num_envs)])
-        )
+        step_success = info.get("success")
+        if step_success is None:
+            step_success = info["final_info"]["success"] == 1.0
+        success = np.logical_or(success, step_success)
         success_rate[done] = (
             success_rate[done] * (1 - cfg.training.sr_decay)
             + success[done] * cfg.training.sr_decay
@@ -73,8 +74,11 @@ def train(
         train_log["train/success-rate"] = success_rate.mean()
 
         # Store transitions (nobs could have been reset)
-        _nobs = np.array([info[i]["next_observation"] for i in range(env.num_envs)])
-        buffer.append(obs, act, rwd, _nobs, ter, np.arange(env.num_envs))
+        final_obs = info.get("final_obs", None)
+        is_reset = final_obs is not None
+        if is_reset:
+            nobs[is_reset] = info["next_observation"][is_reset]
+        buffer.append(obs, act, rwd, nobs, ter, np.arange(env.num_envs))
         obs = nobs
 
         # Training step
@@ -95,7 +99,7 @@ def evaluate(
     cfg: DictConfig,
     logger: Logger,
     epoch: int,
-    env: AsyncVectorEnv,
+    env: VectorEnv,
     sac: MTMHSAC,
     run: Optional[Run] = None,
 ):
@@ -123,9 +127,7 @@ def evaluate(
 
         # Step through the environment
         obs, rwd, ter, tru, info = env.step(act)
-        success = np.logical_or(
-            success, np.array([info[i]["success"] for i in range(num_envs)])
-        )
+        success = np.logical_or(success, info["success"] == 1.0)
         done = ter | tru  # Compute done masks
 
         # Accumulate rewards **only for active environments**
@@ -170,7 +172,7 @@ def main(cfg: DictConfig) -> None:
     torch.manual_seed(cfg.seed)
 
     # Initialize environments, buffer, and agent
-    env: AsyncVectorEnv = initialize_envs(cfg, logger)
+    env: VectorEnv = initialize_envs(cfg, logger)
     mtmhsac: MTMHSAC = initialize_agent(cfg, logger)
     buffer: MTReplayBuffer = initialize_buffer(cfg, logger)
     exp_strategy = initialize_exploration_strategy(cfg, logger, mtmhsac)

@@ -23,7 +23,7 @@ logging:
 
 wandb:
   project: ???
-  name: ???
+  entity: ???
   mode: ???
 
 environment:
@@ -40,7 +40,7 @@ agent:
   gamma: 0.99
   tau: 0.005
   builder:
-    _target_: mt_levy.algos.mtmhsac.MTMHSAC
+    _target_: mt_levy.mtmhsac.MTMHSAC
     num_envs: ${environment.num_envs}
     obs_dim: ${environment.obs_dim}
     act_dim: ${environment.act_dim}
