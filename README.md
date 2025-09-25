@@ -6,7 +6,7 @@ This repository contains the official implementation for the paper: **Leveraging
 
 **Conference:** Accepted for publication in the proceedings of the 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS).
 
-[Link to Paper] (e.g., arXiv link)
+Link to paper: coming soon.
 
 ## Overview
 
@@ -17,10 +17,6 @@ Applying multi-task reinforcement learning (MTRL) to robotics is often hindered 
 -   **Adaptive Exploration:** Automatically adjusts the intensity and frequency of exploration based on task success rates, balancing the need to explore with the need to exploit learned knowledge.
 
 Our experiments on the MT10 multi-task manipulation benchmark show that MT-Lévy significantly improves sample efficiency and asymptotic performance in both dense and sparse reward settings.
-
-![MT-Lévy Overview](https"//i.imgur.com/gO9b2Qy.png")
-
-*An overview of MT-Lévy. Our method improves exploration by sharing behaviors, executing exploratory actions for extended durations, and adaptively tuning parameters.*
 
 ## Installation
 
@@ -33,30 +29,51 @@ Our experiments on the MT10 multi-task manipulation benchmark show that MT-Lévy
 
 2.  **Set up the environment and install dependencies:**
 
-    This project uses `uv` for package management.
+    This project is managed with [`uv`](https://docs.astral.sh/uv/). You can install it with the
+    official installer, which ensures the CLI is available on your `PATH` without polluting the
+    project environment:
 
-    First, install `uv`:
     ```bash
-    pip install uv
+    curl -LsSf https://astral.sh/uv/install.sh | sh
     ```
 
-    Then, create a virtual environment and install the dependencies using `uv sync`:
+    Once `uv` is installed, synchronize the environment (this creates `.venv/` automatically and
+    installs the locked dependencies from `uv.lock`):
+
     ```bash
-    uv venv
-    source .venv/bin/activate
     uv sync
+    ```
+
+    If you prefer to work inside the virtual environment directly, activate it after syncing:
+
+    ```bash
+    source .venv/bin/activate
+    ```
+
+    > **Note:** You do **not** need to activate the virtual environment to run commands with
+    > `uv`. All examples below can be prefixed with `uv run ...` to execute them inside the managed
+    > environment without manual activation.
+
+    Alternatively, if you cannot install `uv`, you can create and populate a standard virtual
+    environment instead:
+
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install --upgrade pip
+    pip install .
     ```
 
 ## Usage
 
-To start training, run the `main.py` script. The project uses [Hydra](https://hydra.cc/) for configuration, allowing you to easily modify parameters from the command line.
+To start training, run the `main.py` script. The project uses [Hydra](https://hydra.cc/) for configuration, allowing you to easily modify parameters from the command line. With `uv`, execute the commands using `uv run` to avoid manual activation of the virtual environment. If you activated `.venv/` manually, you can drop the `uv run` prefix and call `python` directly.
 
 ### Training with MT-Lévy
 
 To train an agent using the **MT-Lévy** exploration strategy, run:
 
 ```bash
-python main.py exploration_strategy=mtlevy
+uv run python main.py exploration_strategy=mtlevy
 ```
 
 Evaluation is performed automatically at the end of each training epoch.
@@ -67,11 +84,11 @@ You can experiment with other exploration strategies:
 
 -   **Standard SAC (no special exploration):**
     ```bash
-    python main.py exploration_strategy=base
+    uv run python main.py exploration_strategy=base
     ```
 -   **Quality-Metric-based Planning (QMP):**
     ```bash
-    python main.py exploration_strategy=qmp
+    uv run python main.py exploration_strategy=qmp
     ```
 
 ### Overriding Configuration
@@ -80,12 +97,12 @@ You can override any parameter from the configuration files (`conf/*.yaml`) dire
 
 For example, to train for more epochs with a different seed:
 ```bash
-python main.py training.num_epochs=500 seed=42
+uv run python main.py training.num_epochs=500 seed=42
 ```
 
 To run on a different GPU:
 ```bash
-python main.py gpu_index=1
+uv run python main.py gpu_index=1
 ```
 
 Refer to the files in the `conf/` directory for a full list of configurable parameters.
@@ -103,11 +120,3 @@ If you find our work useful, please consider citing our paper:
   organization={IEEE}
 }
 ```
-
-## Contributing
-
-We welcome contributions to this project. Please feel free to open an issue or submit a pull request.
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
