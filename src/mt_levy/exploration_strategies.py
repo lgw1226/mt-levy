@@ -61,7 +61,8 @@ class MTLevy(BaseExpStrategy):
         self.rho_bar: float = kwargs["sr_threshold"]
         self.num_neighbors: int = kwargs["num_neighbors"]
 
-        metadata_path = Path(__file__).resolve().parent / "mt10_metadata.npy"
+        package_path = Path(__file__).resolve().parent
+        metadata_path = package_path / "metadata" / "mt10_metadata.npy"
         mt10_metadata = np.load(metadata_path, allow_pickle=True)
         self.sequence_matrix = mt10_metadata[:, : self.num_neighbors]
         self.cnt = np.zeros(self.num_tasks, dtype=np.float32)
