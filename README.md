@@ -6,7 +6,7 @@ This repository contains the official implementation for the paper: **Leveraging
 
 **Conference:** Accepted for publication in the proceedings of the 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS).
 
-Link to paper: coming soon.
+[**Paper Link**](https://arxiv.org/abs/2509.20766)
 
 ## Overview
 
